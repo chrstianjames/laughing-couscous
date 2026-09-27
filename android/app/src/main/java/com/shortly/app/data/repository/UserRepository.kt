@@ -1,13 +1,15 @@
 package com.shortly.app.data.repository
 
-import androidx.lifecycle.LiveData
-import androidx.lifecycle.MutableLiveData
 import com.google.gson.JsonObject
 import com.shortly.app.ShortlyApp
 import com.shortly.app.data.api.ApiService
 import com.shortly.app.data.model.AuthRequest
 import com.shortly.app.data.model.User
+import com.shortly.app.data.prefs.TokenManager
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
@@ -19,14 +21,16 @@ class UserRepository private constructor() {
     private val api: ApiService get() = ShortlyApp.instance.apiService
     private val tokenManager: TokenManager get() = ShortlyApp.instance.tokenManager
 
-    private val _currentUser = MutableLiveData<User?>()
-    val currentUser: LiveData<User?> = _currentUser
+    private val _currentUser = MutableStateFlow<User?>(null)
+
+    /** Current logged-in user. Exposed as a [StateFlow] so Compose can `collectAsState()` it. */
+    val currentUser: StateFlow<User?> = _currentUser.asStateFlow()
 
     suspend fun login(login: String, password: String): Result<User> = withContext(Dispatchers.IO) {
         try {
             val resp = api.login(AuthRequest(login = login, password = password))
             tokenManager.saveAuth(resp.token, resp.user.id)
-            _currentUser.postValue(resp.user)
+            _currentUser.value = resp.user
             Result.success(resp.user)
         } catch (e: Exception) {
             Result.failure(e)
@@ -37,7 +41,7 @@ class UserRepository private constructor() {
         try {
             val resp = api.register(AuthRequest(username = username, email = email, password = password, displayName = displayName))
             tokenManager.saveAuth(resp.token, resp.user.id)
-            _currentUser.postValue(resp.user)
+            _currentUser.value = resp.user
             Result.success(resp.user)
         } catch (e: Exception) {
             Result.failure(e)
@@ -47,17 +51,17 @@ class UserRepository private constructor() {
     suspend fun logout() = withContext(Dispatchers.IO) {
         try { api.logout() } catch (_: Exception) {}
         tokenManager.clear()
-        _currentUser.postValue(null)
+        _currentUser.value = null
     }
 
     suspend fun loadMe(): Result<User> = withContext(Dispatchers.IO) {
         try {
             val resp = api.me()
-            resp.user?.let { _currentUser.postValue(it) }
+            resp.user?.let { _currentUser.value = it }
             Result.success(resp.user!!)
         } catch (e: Exception) {
             tokenManager.clear()
-            _currentUser.postValue(null)
+            _currentUser.value = null
             Result.failure(e)
         }
     }
@@ -75,7 +79,7 @@ class UserRepository private constructor() {
             bio?.let { body.addProperty("bio", it) }
             username?.let { body.addProperty("username", it) }
             val resp = api.editProfile(body)
-            resp.user?.let { _currentUser.postValue(it) }
+            resp.user?.let { _currentUser.value = it }
             Result.success(resp.user ?: _currentUser.value!!)
         } catch (e: Exception) {
             Result.failure(e)
@@ -87,7 +91,7 @@ class UserRepository private constructor() {
             val reqFile = file.asRequestBody("image/*".toMediaTypeOrNull())
             val part = MultipartBody.Part.createFormData("file", file.name, reqFile)
             val resp = api.uploadAvatar(part)
-            resp.user?.let { _currentUser.postValue(it) }
+            resp.user?.let { _currentUser.value = it }
             Result.success(resp.user ?: _currentUser.value!!)
         } catch (e: Exception) {
             Result.failure(e)
@@ -95,7 +99,7 @@ class UserRepository private constructor() {
     }
 
     fun updateUserLocal(user: User) {
-        _currentUser.postValue(user)
+        _currentUser.value = user
     }
 
     companion object {

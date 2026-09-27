@@ -39,7 +39,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             ListItem(
                 headlineContent = { Text("Dark Mode") },
                 supportingContent = { Text("Choose light or dark theme") },
-                trailing = {
+                trailingContent = {
                     when (darkMode) {
                         true -> TextButton(onClick = {
                             scope.launch { app.tokenManager.setDarkMode(null) }
