@@ -1,0 +1,152 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main, master, "arena/**"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Release APK
+    # Pin 24.04: it already ships platforms;android-34 and build-tools;34.0.0.
+    # ubuntu-latest moves to 26.04 later in 2026 and is not required here.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Do not use android-actions/setup-android. Its default package list is
+      # "tools platform-tools", and Google removed the legacy "tools" package
+      # (2026-09-15). sdkmanager then exits 1 with
+      # "Warning: Failed to find package 'tools'" before Gradle ever runs.
+      # The ubuntu-24.04 image already has the SDK this project needs.
+      - name: Prepare Android SDK
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          if [ ! -d "$SDK" ]; then
+            echo "::error::Android SDK not found at $SDK"
+            exit 1
+          fi
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          echo "sdk.dir=$SDK" > android/local.properties
+
+          if [ ! -f "$SDK/licenses/android-sdk-license" ]; then
+            sudo mkdir -p "$SDK/licenses"
+            printf '%s\n' \
+              '8933bad161af4178b1185d1a37fbf41ea5269c55' \
+              'd56f5187479451eabf01fb78af6dfcb131a6481e' \
+              '24333f8a63b6825ea9c5514f83c2829b004d1fee' \
+              | sudo tee "$SDK/licenses/android-sdk-license" >/dev/null
+          fi
+
+          if [ ! -d "$SDK/platforms/android-34" ] || [ ! -d "$SDK/build-tools/34.0.0" ]; then
+            SM="$(find "$SDK/cmdline-tools" -type f -name sdkmanager -print -quit)"
+            if [ -z "$SM" ]; then
+              echo "::error::android-34 / build-tools 34.0.0 missing and sdkmanager was not found"
+              exit 1
+            fi
+            yes | "$SM" --sdk_root="$SDK" --licenses >/dev/null || true
+            "$SM" --sdk_root="$SDK" "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+          fi
+
+          test -d "$SDK/platforms/android-34"
+          test -d "$SDK/build-tools/34.0.0"
+          echo "Android SDK ready at $SDK"
+
+      # Prefer repository signing secrets. Otherwise mint a throwaway PKCS12 key
+      # so assembleRelease yields an installable APK, not app-release-unsigned.apk.
+      - name: Prepare signing key
+        env:
+          KS: ${{ secrets.SHORTLY_KEYSTORE_BASE64 }}
+          SP: ${{ secrets.SHORTLY_STORE_PASSWORD }}
+          KA: ${{ secrets.SHORTLY_KEY_ALIAS }}
+          KP: ${{ secrets.SHORTLY_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          F="$RUNNER_TEMP/release.keystore"
+          if [ -n "${KS:-}" ]; then
+            printf '%s' "$KS" | base64 -d > "$F"
+            P="${SP:?SHORTLY_STORE_PASSWORD is required when SHORTLY_KEYSTORE_BASE64 is set}"
+            A="${KA:?SHORTLY_KEY_ALIAS is required when SHORTLY_KEYSTORE_BASE64 is set}"
+            K="${KP:?SHORTLY_KEY_PASSWORD is required when SHORTLY_KEYSTORE_BASE64 is set}"
+          else
+            P="shortly-ci"
+            A="shortly"
+            K="shortly-ci"
+            keytool -genkeypair \
+              -keystore "$F" \
+              -storetype PKCS12 \
+              -storepass "$P" \
+              -keypass "$K" \
+              -alias "$A" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Shortly CI, O=Shortly, C=US"
+          fi
+          {
+            echo "SHORTLY_STORE_FILE=$F"
+            echo "SHORTLY_STORE_PASSWORD<<EOF"
+            echo "$P"
+            echo "EOF"
+            echo "SHORTLY_KEY_ALIAS<<EOF"
+            echo "$A"
+            echo "EOF"
+            echo "SHORTLY_KEY_PASSWORD<<EOF"
+            echo "$K"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        working-directory: android
+        run: chmod +x gradlew && ./gradlew assembleRelease --stacktrace
+
+      - name: Collect APK
+        id: apk
+        working-directory: android
+        run: |
+          set -euo pipefail
+          P="$(find app/build/outputs/apk/release -name '*.apk' -type f -print -quit)"
+          if [ -z "$P" ]; then
+            echo "::error::assembleRelease produced no APK"
+            find app/build/outputs -type f -print || true
+            exit 1
+          fi
+          cp "$P" "$GITHUB_WORKSPACE/shortly-release.apk"
+          echo "path=$P" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Shortly release APK"
+            echo ""
+            echo "- \`android/$P\` ($(du -h "$P" | cut -f1))"
+            echo "- Artifact: **shortly-release-apk**"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shortly-release-apk
+          path: shortly-release.apk
+          if-no-files-found: error
+          retention-days: 30

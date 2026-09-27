@@ -8,12 +8,8 @@ PR #1 has been **merged into `main`**. The code is live on the default branch.
 
 ## APK builds on GitHub Actions
 
-> Until that happens the Actions run still fails in **Setup Android SDK** with
-> `Warning: Failed to find package 'tools'` — that step comes from
-> `android-actions/setup-android@v3`, which is removed in the fixed version.
-
-Once applied, the workflow at `.github/workflows/android-build.yml` runs on every
-push and pull request to `main` (and on demand via *Run workflow*):
+The workflow at `.github/workflows/android-build.yml` runs on every push and
+pull request to `main` (and on demand via *Run workflow*):
 
 1. Sets up JDK 17 (Temurin) and the Android SDK 34 platform + build-tools 34.0.0
 2. Runs `./gradlew assembleRelease` in `android/` using the committed Gradle 8.5 wrapper
@@ -40,7 +36,7 @@ The workflow picks them up automatically — no other change needed.
 ```
 android/    Native Kotlin + Jetpack Compose + Material 3 Android app
 api/        PHP 8 REST API with flock()-based JSON-file database
-.setup/     Reference copy of the CI workflow
+.github/    GitHub Actions workflow that builds the release APK
 BUILD.md    Full build & deployment instructions
 ```
 
