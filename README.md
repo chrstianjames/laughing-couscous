@@ -6,32 +6,59 @@ paired with a PHP REST backend that uses a JSON-file database (no SQL).
 
 PR #1 has been **merged into `main`**. The code is live on the default branch.
 
-## One remaining step to trigger APK builds on GitHub Actions
+## APK builds on GitHub Actions
 
-When PR #1 merged, you added a workflow at `.github/workflows/.setup/android-build.yml`
-(a placeholder template from GitHub's suggested-CI flow) which sits inside a `.setup/`
-sub-folder of `.github/workflows/` — GitHub Actions does **not** scan sub-folders of
-`.github/workflows/`, so no workflow is currently registered.
+> ### ⚠️ One manual step is still required
+>
+> GitHub refuses to let the Arena coding agent write to `.github/workflows/**`
+> (`refusing to allow a GitHub App to create or update workflow ... without
+> 'workflows' permission`), so the **fixed** workflow is committed here instead:
+>
+> **`.setup/android-build.yml`**
+>
+> Apply it in either of two ways:
+>
+> * **Grant the permission** — *Settings → GitHub Apps → Arena AI Coding Agent →
+>   Configure → Repository permissions → Workflows → Read and write*, then ask the
+>   agent to push it. Everything else is already done.
+> * **Paste it yourself** — open
+>   [`.github/workflows/android-build.yml`](https://github.com/chrstianjames/laughing-couscous/edit/main/.github/workflows/android-build.yml),
+>   select all, delete, paste the contents of
+>   [`.setup/android-build.yml`](.setup/android-build.yml), and commit to `main`.
+>
+> Until that happens the Actions run still fails in **Setup Android SDK** with
+> `Warning: Failed to find package 'tools'` — that step comes from
+> `android-actions/setup-android@v3`, which is removed in the fixed version.
 
-To enable automatic APK builds, click the link below. It opens GitHub's "Create new file"
-page on the `main` branch with the correct filename and the full working workflow YAML
-already filled in. Just scroll to the bottom and press **Commit new file**:
+Once applied, the workflow at `.github/workflows/android-build.yml` runs on every
+push and pull request to `main` (and on demand via *Run workflow*):
 
-👉 **[Add android-build.yml to .github/workflows/](https://github.com/chrstianjames/laughing-couscous/new/main?filename=.github%2Fworkflows%2Fandroid-build.yml&value=name%3A+Build+Android+APK%0A%0Aon%3A%0A++push%3A%0A++++branches%3A+%5Bmain%2C+master%5D%0A++pull_request%3A%0A++++branches%3A+%5Bmain%2C+master%5D%0A++workflow_dispatch%3A%0A%0Ajobs%3A%0A++build%3A%0A++++name%3A+Build+Release+APK%0A++++runs-on%3A+ubuntu-latest%0A++++timeout-minutes%3A+45%0A%0A++++steps%3A%0A++++++-+name%3A+Checkout%0A++++++++uses%3A+actions%2Fcheckout%40v4%0A%0A++++++-+name%3A+Set+up+JDK+17%0A++++++++uses%3A+actions%2Fsetup-java%40v4%0A++++++++with%3A%0A++++++++++java-version%3A+%2717%27%0A++++++++++distribution%3A+%27temurin%27%0A%0A++++++-+name%3A+Setup+Gradle%0A++++++++uses%3A+gradle%2Factions%2Fsetup-gradle%40v4%0A++++++++with%3A%0A++++++++++gradle-version%3A+%278.5%27%0A++++++++++build-root-directory%3A+android%0A%0A++++++-+name%3A+Setup+Android+SDK%0A++++++++uses%3A+android-actions%2Fsetup-android%40v3%0A%0A++++++-+name%3A+Install+Android+SDK+components%0A++++++++shell%3A+bash%0A++++++++run%3A+%7C%0A++++++++++set+-x%0A++++++++++SDKMAN%3D%22%24ANDROID_SDK_ROOT%2Fcmdline-tools%2Flatest%2Fbin%2Fsdkmanager%22%0A++++++++++if+%5B+%21+-x+%22%24SDKMAN%22+%5D%3B+then%0A++++++++++++SDKMAN%3D%24%28find+%22%24ANDROID_SDK_ROOT%2Fcmdline-tools%22+-name+sdkmanager+-type+f+2%3E%2Fdev%2Fnull+%7C+head+-1%29%0A++++++++++fi%0A++++++++++if+%5B+-z+%22%24SDKMAN%22+%5D%3B+then%0A++++++++++++cd+%22%24ANDROID_SDK_ROOT%22%0A++++++++++++wget+-q+https%3A%2F%2Fdl.google.com%2Fandroid%2Frepository%2Fcommandlinetools-linux-11076708_latest.zip+-O+cmdline-tools.zip%0A++++++++++++mkdir+-p+cmdline-tools%2Flatest%0A++++++++++++unzip+-q+cmdline-tools.zip%0A++++++++++++mv+cmdline-tools%2F%2A+cmdline-tools%2Flatest%2F+2%3E%2Fdev%2Fnull+%7C%7C+true%0A++++++++++++rm+cmdline-tools.zip%0A++++++++++++SDKMAN%3D%22%24ANDROID_SDK_ROOT%2Fcmdline-tools%2Flatest%2Fbin%2Fsdkmanager%22%0A++++++++++++chmod+%2Bx+%22%24SDKMAN%22%0A++++++++++fi%0A++++++++++yes+%7C+%22%24SDKMAN%22+--licenses+%3E+%2Fdev%2Fnull+%7C%7C+true%0A++++++++++%22%24SDKMAN%22+--sdk_root%3D%22%24ANDROID_SDK_ROOT%22+%22platforms%3Bandroid-34%22+%22build-tools%3B34.0.0%22+%22platform-tools%22%0A%0A++++++-+name%3A+Grant+execute+permission+for+gradlew%0A++++++++run%3A+chmod+%2Bx+gradlew%0A++++++++working-directory%3A+android%0A%0A++++++-+name%3A+Download+Gradle+Wrapper+jar%0A++++++++run%3A+%7C%0A++++++++++mkdir+-p+gradle%2Fwrapper%0A++++++++++curl+-fsSL+--retry+3+-o+gradle%2Fwrapper%2Fgradle-wrapper.jar+https%3A%2F%2Fraw.githubusercontent.com%2Fgradle%2Fgradle%2Fv8.5.0%2Fgradle%2Fwrapper%2Fgradle-wrapper.jar%0A++++++++working-directory%3A+android%0A%0A++++++-+name%3A+Create+local.properties%0A++++++++run%3A+%7C%0A++++++++++echo+%22sdk.dir%3D%24ANDROID_SDK_ROOT%22+%3E+local.properties%0A++++++++working-directory%3A+android%0A%0A++++++-+name%3A+Build+release+APK%0A++++++++run%3A+.%2Fgradlew+assembleRelease+--no-daemon+--stacktrace%0A++++++++working-directory%3A+android%0A%0A++++++-+name%3A+Find+APK%0A++++++++id%3A+apk%0A++++++++run%3A+%7C%0A++++++++++APK_PATH%3D%24%28find+app%2Fbuild%2Foutputs%2Fapk%2Frelease+-name+%22%2A.apk%22+-type+f+%7C+head+-1%29%0A++++++++++echo+%22path%3D%24APK_PATH%22+%3E%3E+%22%24GITHUB_OUTPUT%22%0A++++++++working-directory%3A+android%0A%0A++++++-+name%3A+Upload+APK+artifact%0A++++++++uses%3A+actions%2Fupload-artifact%40v4%0A++++++++with%3A%0A++++++++++name%3A+shortly-release-apk%0A++++++++++path%3A+android%2F%24%7B%7B+steps.apk.outputs.path+%7D%7D%0A++++++++++if-no-files-found%3A+error%0A)**
+1. Sets up JDK 17 (Temurin) and the Android SDK 34 platform + build-tools 34.0.0
+2. Runs `./gradlew assembleRelease` in `android/` using the committed Gradle 8.5 wrapper
+3. Signs the APK (temporary CI key by default — see below)
+4. Uploads **`shortly-release-apk`** as an artifact on the [Actions tab](https://github.com/chrstianjames/laughing-couscous/actions)
 
-That single commit will register the workflow and automatically start a build that:
-1. Sets up JDK 17 + Android SDK 34
-2. Runs `./gradlew assembleRelease`
-3. Uploads `shortly-release-apk` as a downloadable artifact on the **Actions** tab
+### Signing with your own release key (optional)
 
-Every push after that will rebuild the APK automatically.
+By default CI generates a throwaway keystore so the artifact is installable for testing.
+To publish with a real key, add these four repository secrets
+(*Settings → Secrets and variables → Actions*):
+
+| Secret | Contents |
+| --- | --- |
+| `SHORTLY_KEYSTORE_BASE64` | `base64 -w0 your-release-key.jks` |
+| `SHORTLY_STORE_PASSWORD` | keystore password |
+| `SHORTLY_KEY_ALIAS` | key alias |
+| `SHORTLY_KEY_PASSWORD` | key password |
+
+The workflow picks them up automatically — no other change needed.
 
 ## Project structure
 
 ```
 android/    Native Kotlin + Jetpack Compose + Material 3 Android app
 api/        PHP 8 REST API with flock()-based JSON-file database
-.setup/     Working GitHub Actions workflow YAML (source for the link above)
+.setup/     Reference copy of the CI workflow
 BUILD.md    Full build & deployment instructions
 ```
 
@@ -75,7 +102,8 @@ BUILD.md    Full build & deployment instructions
 cd android
 ./gradlew assembleRelease
 ```
-Output APK: `android/app/build/outputs/apk/release/app-release-unsigned.apk`.
+Output APK: `android/app/build/outputs/apk/release/app-release.apk`
+(debug-signed unless you configure a release keystore — see BUILD.md).
 Requires JDK 17 and Android SDK 34 (Build-Tools 34.0.0). Android Studio works
 out of the box. See BUILD.md for full details.
 
