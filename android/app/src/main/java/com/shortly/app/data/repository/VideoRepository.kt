@@ -101,14 +101,25 @@ class VideoRepository private constructor() {
         } catch (e: Exception) { Result.failure(e) }
     }
 
-    suspend fun uploadVideo(file: File, caption: String, duration: Float): Result<Video> = withContext(Dispatchers.IO) {
+    suspend fun uploadVideo(
+        file: File,
+        caption: String,
+        duration: Float,
+        mimeType: String? = null,
+        thumbnail: File? = null
+    ): Result<Video> = withContext(Dispatchers.IO) {
         try {
-            val reqFile = file.asRequestBody("video/*".toMediaTypeOrNull())
+            val videoMime = (mimeType?.takeIf { it.startsWith("video/") } ?: "video/mp4").toMediaTypeOrNull()
+            val reqFile = file.asRequestBody(videoMime)
             val part = MultipartBody.Part.createFormData("file", file.name, reqFile)
             val captionBody = caption.toRequestBody("text/plain".toMediaTypeOrNull())
             val durationBody = duration.toString().toRequestBody("text/plain".toMediaTypeOrNull())
-            val resp = api.uploadVideo(part, captionBody, durationBody)
-            Result.success(resp.video!!)
+            val thumbPart = thumbnail?.takeIf { it.exists() && it.length() > 0 }?.let {
+                MultipartBody.Part.createFormData("thumbnail", it.name, it.asRequestBody("image/jpeg".toMediaTypeOrNull()))
+            }
+            val resp = api.uploadVideo(part, captionBody, durationBody, thumbPart)
+            val video = resp.video ?: throw IllegalStateException(resp.message ?: "Server did not return the uploaded video")
+            Result.success(video)
         } catch (e: Exception) { Result.failure(e) }
     }
 

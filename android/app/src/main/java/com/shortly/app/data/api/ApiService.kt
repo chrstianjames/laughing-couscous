@@ -84,7 +84,8 @@ interface ApiService {
     suspend fun uploadVideo(
         @Part file: MultipartBody.Part,
         @Part("caption") caption: RequestBody,
-        @Part("duration") duration: RequestBody
+        @Part("duration") duration: RequestBody,
+        @Part thumbnail: MultipartBody.Part? = null
     ): ApiResponse<Unit>
 
     @GET("videos/{id}")

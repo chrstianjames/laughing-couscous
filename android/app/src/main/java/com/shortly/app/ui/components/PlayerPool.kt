@@ -54,7 +54,24 @@ object PlayerPool {
             }
         }
         override fun onPlayerError(error: PlaybackException) {
-            _playerState.value = PlayerState.Error(error.message ?: "Playback error")
+            val cause = error.cause
+            val detail = when {
+                cause is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException ->
+                    "Server returned HTTP ${cause.responseCode}"
+                cause is androidx.media3.datasource.HttpDataSource.HttpDataSourceException ->
+                    "Network error while loading video"
+                error.errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
+                error.errorCode == PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED ->
+                    "This device cannot decode the video format"
+                error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
+                error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ->
+                    "Video file is corrupt or unsupported"
+                error.errorCode == PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED ->
+                    "Insecure (http) video URL blocked"
+                else -> error.errorCodeName
+            }
+            android.util.Log.w("PlayerPool", "Playback error for $currentUrl: ${error.errorCodeName}", error)
+            _playerState.value = PlayerState.Error(detail)
         }
     }
 
@@ -72,6 +89,11 @@ object PlayerPool {
 
         val httpFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
+            // Send the session token: harmless for public files and required
+            // if the server ever gates /stream/ behind auth.
+            .setDefaultRequestProperties(
+                ShortlyApp.instance.tokenManager.getToken()?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()
+            )
             .setConnectTimeoutMs(15000)
             .setReadTimeoutMs(30000)
             .setUserAgent("Shortly/1.0")
@@ -119,6 +141,15 @@ object PlayerPool {
 
     fun pause() {
         currentPlayer?.playWhenReady = false
+    }
+
+    /** Re-prepare the current item after a playback error. */
+    fun retry() {
+        currentPlayer?.let {
+            _playerState.value = PlayerState.Loading
+            it.prepare()
+            it.playWhenReady = true
+        }
     }
 
     fun resume() {

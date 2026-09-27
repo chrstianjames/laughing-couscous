@@ -89,3 +89,17 @@ out of the box. See BUILD.md for full details.
 
 Upload the entire `api/` directory to a PHP 8+ host and make `api/data/`,
 `api/uploads/videos/`, and `api/uploads/avatars/` writable by the web server.
+
+```
+chmod 775 api/data api/uploads api/uploads/videos api/uploads/avatars api/uploads/thumbnails
+```
+
+Make sure the hidden files `api/.htaccess`, `api/.user.ini` and
+`api/uploads/.htaccess` are uploaded too (FTP clients often skip dot-files).
+`api/.user.ini` (PHP-CGI/FPM) and the `php_value` block in `api/.htaccess`
+(mod_php) raise `upload_max_filesize` / `post_max_size` so 100 MB videos can
+be posted; if your host ignores both, raise them in the hosting control panel.
+
+Uploaded videos are served directly by Apache from `api/uploads/videos/`
+(with native byte-range support). The `/api/stream/<file>` PHP endpoint is kept
+for videos uploaded before this change.

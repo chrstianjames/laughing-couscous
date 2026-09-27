@@ -16,6 +16,7 @@ define('DATA_DIR', BASE_PATH . '/data');
 define('UPLOAD_DIR', BASE_PATH . '/uploads');
 define('AVATAR_DIR', UPLOAD_DIR . '/avatars');
 define('VIDEO_DIR', UPLOAD_DIR . '/videos');
+define('THUMB_DIR', UPLOAD_DIR . '/thumbnails');
 define('MAX_VIDEO_SIZE', 100 * 1024 * 1024); // 100MB
 define('MAX_AVATAR_SIZE', 5 * 1024 * 1024);  // 5MB
 define('SESSION_EXPIRY', 30 * 24 * 60 * 60); // 30 days
@@ -100,6 +101,33 @@ ensure_writable_dir(DATA_DIR, 'data directory');
 // Upload dirs are only needed for media; create them but do not block login if they fail.
 if (!is_dir(AVATAR_DIR)) @mkdir(AVATAR_DIR, 0775, true);
 if (!is_dir(VIDEO_DIR)) @mkdir(VIDEO_DIR, 0775, true);
+if (!is_dir(THUMB_DIR)) @mkdir(THUMB_DIR, 0775, true);
+
+/**
+ * Public scheme+host for building absolute media URLs. Honours reverse
+ * proxies / CDNs (Cloudflare etc.) that terminate TLS and talk plain HTTP to
+ * Apache; without this uploads got "http://" URLs.
+ */
+function public_base_url(): string
+{
+    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (($_SERVER['SERVER_PORT'] ?? '') === '443')
+        || (strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https')
+        || (strtolower((string)($_SERVER['HTTP_X_FORWARDED_SSL'] ?? '')) === 'on')
+        || (strtolower((string)($_SERVER['HTTP_FRONT_END_HTTPS'] ?? '')) === 'on');
+    $host = $_SERVER['HTTP_X_FORWARDED_HOST'] ?? ($_SERVER['HTTP_HOST'] ?? ($_SERVER['SERVER_NAME'] ?? 'localhost'));
+    $host = explode(',', (string)$host)[0];
+    $base = rtrim(str_replace('\\', '/', dirname((string)($_SERVER['SCRIPT_NAME'] ?? '/api/index.php'))), '/');
+    return ($https ? 'https' : 'http') . '://' . trim($host) . $base;
+}
+
+/** Turn a stored (possibly relative or http://) media URL into a usable absolute URL. */
+function media_url(?string $url): ?string
+{
+    if ($url === null || $url === '') return null;
+    if (preg_match('#^https?://#i', $url)) return $url;
+    return public_base_url() . '/' . ltrim($url, '/');
+}
 
 /**
  * JSON database handler with file locking
@@ -448,7 +476,7 @@ function format_user(array $user, bool $includeEmail = false): array
         'id' => $user['id'],
         'username' => $user['username'],
         'display_name' => $user['display_name'] ?? $user['username'],
-        'avatar_url' => $user['avatar_url'] ?? null,
+        'avatar_url' => media_url($user['avatar_url'] ?? null),
         'bio' => $user['bio'] ?? '',
         'followers_count' => $followersCount,
         'following_count' => $followingCount,
@@ -478,8 +506,8 @@ function format_video(array $video, ?string $currentUserId = null): array
         'id' => $video['id'],
         'user_id' => $video['user_id'],
         'author' => $authorData,
-        'video_url' => $video['video_url'],
-        'thumbnail_url' => $video['thumbnail_url'] ?? null,
+        'video_url' => media_url($video['video_url'] ?? ''),
+        'thumbnail_url' => media_url($video['thumbnail_url'] ?? null),
         'caption' => $video['caption'] ?? '',
         'hashtags' => $video['hashtags'] ?? [],
         'duration' => (float)($video['duration'] ?? 0),

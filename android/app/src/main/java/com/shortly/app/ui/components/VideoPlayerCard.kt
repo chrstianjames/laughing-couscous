@@ -109,16 +109,34 @@ fun VideoPlayerCard(
                 )
             }
     ) {
-        // Video player
+        // Poster frame: always drawn underneath the player so the user sees
+        // the thumbnail (not a black surface) while the video buffers, and
+        // it stays visible if playback fails.
         val currentPlayer = player
+        val showPoster = currentPlayer == null || playerState !is PlayerPool.PlayerState.Ready
+        if (video.thumbnailUrl != null) {
+            AsyncImage(
+                model = video.thumbnailUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(Modifier.fillMaxSize().background(Color(0xFF0A0A0C)))
+        }
+
+        // Video player
         if (currentPlayer != null) {
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
                         useController = false
                         resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                        // Transparent shutter so the poster above shows
+                        // through until the first frame is rendered.
+                        setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                        setKeepContentOnPlayerReset(true)
                         player = currentPlayer
-                        setShutterBackgroundColor(android.graphics.Color.BLACK)
                     }
                 },
                 update = { view ->
@@ -128,24 +146,46 @@ fun VideoPlayerCard(
                 },
                 modifier = Modifier.fillMaxSize()
             )
-        } else {
-            // Thumbnail fallback
-            if (video.thumbnailUrl != null) {
-                AsyncImage(
-                    model = video.thumbnailUrl,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                Box(Modifier.fillMaxSize().background(Color(0xFF0A0A0C)))
+        }
+
+        // Loading overlay
+        if (showPoster && playerState !is PlayerPool.PlayerState.Error && currentPlayer != null) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Color.White, strokeWidth = 3.dp)
             }
         }
 
-        // Loading/error overlay
-        if (playerState is PlayerPool.PlayerState.Loading && currentPlayer != null) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Color.White, strokeWidth = 3.dp)
+        // Error overlay with retry (previously errors were swallowed and the
+        // card simply stayed black)
+        (playerState as? PlayerPool.PlayerState.Error)?.let { err ->
+            if (currentPlayer != null) {
+                Column(
+                    Modifier
+                        .align(Alignment.Center)
+                        .padding(horizontal = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = Color.White, modifier = Modifier.size(40.dp))
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Couldn't play this video",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Text(
+                        err.message,
+                        color = Color.White.copy(alpha = 0.8f),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { PlayerPool.retry() },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                    ) { Text("Retry") }
+                }
             }
         }
 
