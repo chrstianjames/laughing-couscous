@@ -115,6 +115,9 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.foundation:foundation")
+    // AnimatedVisibility / fadeIn / fadeOut are imported directly, so declare it explicitly
+    // instead of relying on it leaking in transitively from foundation/material3.
+    implementation("androidx.compose.animation:animation")
     implementation("androidx.paging:paging-runtime-ktx:3.2.1")
     implementation("androidx.paging:paging-compose:3.2.1")
     implementation("androidx.navigation:navigation-compose:2.7.7")
