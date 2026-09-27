@@ -2,94 +2,108 @@
 declare(strict_types=1);
 require_once __DIR__ . '/config.php';
 
-// Parse request
-$requestUri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-// Strip base path
-$scriptName = dirname($_SERVER['SCRIPT_NAME']);
-$scriptName = rtrim($scriptName, '/');
-$path = substr($requestUri, strlen($scriptName));
-$path = '/' . ltrim($path, '/');
-$method = $_SERVER['REQUEST_METHOD'];
-
-// Route
+// Parse request and route. Everything, including path parsing, is inside the
+// try/catch so a missing/odd REQUEST_URI or SCRIPT_NAME never fatals.
 try {
+    $method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+    $path = resolve_request_path();
     route($method, $path);
 } catch (Throwable $e) {
     error_log('API Error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
     error_response('Internal server error', 500);
 }
 
+function resolve_request_path(): string
+{
+    $requestUri = (string)($_SERVER['REQUEST_URI'] ?? ($_SERVER['PATH_INFO'] ?? '/'));
+    $parsed = parse_url($requestUri, PHP_URL_PATH);
+    $requestPath = is_string($parsed) && $parsed !== '' ? $parsed : '/';
+
+    // Strip base path (e.g. "/api") derived from SCRIPT_NAME
+    $scriptName = (string)($_SERVER['SCRIPT_NAME'] ?? '');
+    $base = $scriptName !== '' ? rtrim(str_replace('\\', '/', dirname($scriptName)), '/') : '';
+    if ($base !== '' && $base !== '.' && strpos($requestPath, $base) === 0) {
+        $requestPath = substr($requestPath, strlen($base));
+    }
+    // Allow calling /api/index.php/auth/login directly
+    if (preg_match('#^/?index\.php(/|$)#', $requestPath)) {
+        $requestPath = (string)preg_replace('#^/?index\.php#', '', $requestPath, 1);
+    }
+    $requestPath = '/' . ltrim($requestPath, '/');
+    return rtrim($requestPath, '/') ?: '/';
+}
+
 function route(string $method, string $path): void
 {
     // Auth endpoints
-    if ($path === '/auth/register' && $method === 'POST') return handle_register();
-    if ($path === '/auth/login' && $method === 'POST') return handle_login();
-    if ($path === '/auth/logout' && $method === 'POST') return handle_logout();
-    if ($path === '/auth/me' && $method === 'GET') return handle_me();
+    if ($path === '/auth/register' && $method === 'POST') { handle_register(); return; }
+    if ($path === '/auth/login' && $method === 'POST') { handle_login(); return; }
+    if ($path === '/auth/logout' && $method === 'POST') { handle_logout(); return; }
+    if ($path === '/auth/me' && $method === 'GET') { handle_me(); return; }
 
     // Users
-    if (preg_match('#^/users/([a-zA-Z0-9]+)$#', $path, $m) && $method === 'GET') return handle_get_user($m[1]);
-    if (preg_match('#^/users/([a-zA-Z0-9]+)/videos$#', $path, $m) && $method === 'GET') return handle_user_videos($m[1]);
-    if ($path === '/users/profile/edit' && $method === 'POST') return handle_edit_profile();
-    if ($path === '/users/search' && $method === 'GET') return handle_search_users();
+    if (preg_match('#^/users/([a-zA-Z0-9]+)$#', $path, $m) && $method === 'GET') { handle_get_user($m[1]); return; }
+    if (preg_match('#^/users/([a-zA-Z0-9]+)/videos$#', $path, $m) && $method === 'GET') { handle_user_videos($m[1]); return; }
+    if ($path === '/users/profile/edit' && $method === 'POST') { handle_edit_profile(); return; }
+    if ($path === '/users/search' && $method === 'GET') { handle_search_users(); return; }
 
     // Follow
-    if (preg_match('#^/users/([a-zA-Z0-9]+)/follow$#', $path, $m) && $method === 'POST') return handle_follow($m[1]);
-    if (preg_match('#^/users/([a-zA-Z0-9]+)/follow$#', $path, $m) && $method === 'DELETE') return handle_unfollow($m[1]);
-    if (preg_match('#^/users/([a-zA-Z0-9]+)/followers$#', $path, $m) && $method === 'GET') return handle_followers($m[1]);
-    if (preg_match('#^/users/([a-zA-Z0-9]+)/following$#', $path, $m) && $method === 'GET') return handle_following($m[1]);
+    if (preg_match('#^/users/([a-zA-Z0-9]+)/follow$#', $path, $m) && $method === 'POST') { handle_follow($m[1]); return; }
+    if (preg_match('#^/users/([a-zA-Z0-9]+)/follow$#', $path, $m) && $method === 'DELETE') { handle_unfollow($m[1]); return; }
+    if (preg_match('#^/users/([a-zA-Z0-9]+)/followers$#', $path, $m) && $method === 'GET') { handle_followers($m[1]); return; }
+    if (preg_match('#^/users/([a-zA-Z0-9]+)/following$#', $path, $m) && $method === 'GET') { handle_following($m[1]); return; }
 
     // Videos
-    if ($path === '/videos/upload' && $method === 'POST') return handle_upload_video();
-    if (preg_match('#^/videos/([a-zA-Z0-9]+)$#', $path, $m) && $method === 'GET') return handle_get_video($m[1]);
-    if (preg_match('#^/videos/([a-zA-Z0-9]+)$#', $path, $m) && $method === 'DELETE') return handle_delete_video($m[1]);
-    if (preg_match('#^/videos/([a-zA-Z0-9]+)/view$#', $path, $m) && $method === 'POST') return handle_view_video($m[1]);
+    if ($path === '/videos/upload' && $method === 'POST') { handle_upload_video(); return; }
+    if (preg_match('#^/videos/([a-zA-Z0-9]+)$#', $path, $m) && $method === 'GET') { handle_get_video($m[1]); return; }
+    if (preg_match('#^/videos/([a-zA-Z0-9]+)$#', $path, $m) && $method === 'DELETE') { handle_delete_video($m[1]); return; }
+    if (preg_match('#^/videos/([a-zA-Z0-9]+)/view$#', $path, $m) && $method === 'POST') { handle_view_video($m[1]); return; }
 
     // Feed
-    if ($path === '/feed/for-you' && $method === 'GET') return handle_feed_for_you();
-    if ($path === '/feed/following' && $method === 'GET') return handle_feed_following();
+    if ($path === '/feed/for-you' && $method === 'GET') { handle_feed_for_you(); return; }
+    if ($path === '/feed/following' && $method === 'GET') { handle_feed_following(); return; }
 
     // Likes
-    if (preg_match('#^/videos/([a-zA-Z0-9]+)/like$#', $path, $m) && $method === 'POST') return handle_like($m[1]);
-    if (preg_match('#^/videos/([a-zA-Z0-9]+)/like$#', $path, $m) && $method === 'DELETE') return handle_unlike($m[1]);
+    if (preg_match('#^/videos/([a-zA-Z0-9]+)/like$#', $path, $m) && $method === 'POST') { handle_like($m[1]); return; }
+    if (preg_match('#^/videos/([a-zA-Z0-9]+)/like$#', $path, $m) && $method === 'DELETE') { handle_unlike($m[1]); return; }
 
     // Saves
-    if (preg_match('#^/videos/([a-zA-Z0-9]+)/save$#', $path, $m) && $method === 'POST') return handle_save($m[1]);
-    if (preg_match('#^/videos/([a-zA-Z0-9]+)/save$#', $path, $m) && $method === 'DELETE') return handle_unsave($m[1]);
+    if (preg_match('#^/videos/([a-zA-Z0-9]+)/save$#', $path, $m) && $method === 'POST') { handle_save($m[1]); return; }
+    if (preg_match('#^/videos/([a-zA-Z0-9]+)/save$#', $path, $m) && $method === 'DELETE') { handle_unsave($m[1]); return; }
 
     // Comments
-    if (preg_match('#^/videos/([a-zA-Z0-9]+)/comments$#', $path, $m) && $method === 'GET') return handle_get_comments($m[1]);
-    if (preg_match('#^/videos/([a-zA-Z0-9]+)/comments$#', $path, $m) && $method === 'POST') return handle_add_comment($m[1]);
-    if (preg_match('#^/comments/([a-zA-Z0-9]+)/like$#', $path, $m) && $method === 'POST') return handle_like_comment($m[1]);
-    if (preg_match('#^/comments/([a-zA-Z0-9]+)/like$#', $path, $m) && $method === 'DELETE') return handle_unlike_comment($m[1]);
-    if (preg_match('#^/comments/([a-zA-Z0-9]+)/replies$#', $path, $m) && $method === 'GET') return handle_comment_replies($m[1]);
-    if (preg_match('#^/comments/([a-zA-Z0-9]+)$#', $path, $m) && $method === 'DELETE') return handle_delete_comment($m[1]);
+    if (preg_match('#^/videos/([a-zA-Z0-9]+)/comments$#', $path, $m) && $method === 'GET') { handle_get_comments($m[1]); return; }
+    if (preg_match('#^/videos/([a-zA-Z0-9]+)/comments$#', $path, $m) && $method === 'POST') { handle_add_comment($m[1]); return; }
+    if (preg_match('#^/comments/([a-zA-Z0-9]+)/like$#', $path, $m) && $method === 'POST') { handle_like_comment($m[1]); return; }
+    if (preg_match('#^/comments/([a-zA-Z0-9]+)/like$#', $path, $m) && $method === 'DELETE') { handle_unlike_comment($m[1]); return; }
+    if (preg_match('#^/comments/([a-zA-Z0-9]+)/replies$#', $path, $m) && $method === 'GET') { handle_comment_replies($m[1]); return; }
+    if (preg_match('#^/comments/([a-zA-Z0-9]+)$#', $path, $m) && $method === 'DELETE') { handle_delete_comment($m[1]); return; }
 
     // Saved videos
-    if ($path === '/users/me/saved' && $method === 'GET') return handle_my_saved();
+    if ($path === '/users/me/saved' && $method === 'GET') { handle_my_saved(); return; }
 
     // Notifications
-    if ($path === '/notifications' && $method === 'GET') return handle_notifications();
-    if ($path === '/notifications/read' && $method === 'POST') return handle_mark_notifications_read();
+    if ($path === '/notifications' && $method === 'GET') { handle_notifications(); return; }
+    if ($path === '/notifications/read' && $method === 'POST') { handle_mark_notifications_read(); return; }
 
     // Search
-    if ($path === '/search' && $method === 'GET') return handle_search();
+    if ($path === '/search' && $method === 'GET') { handle_search(); return; }
 
     // Hashtags
-    if ($path === '/hashtags/trending' && $method === 'GET') return handle_trending_hashtags();
-    if (preg_match('#^/hashtags/([^/]+)/videos$#', $path, $m) && $method === 'GET') return handle_hashtag_videos($m[1]);
+    if ($path === '/hashtags/trending' && $method === 'GET') { handle_trending_hashtags(); return; }
+    if (preg_match('#^/hashtags/([^/]+)/videos$#', $path, $m) && $method === 'GET') { handle_hashtag_videos($m[1]); return; }
 
     // Reports & Blocks
-    if ($path === '/report' && $method === 'POST') return handle_report();
-    if (preg_match('#^/users/([a-zA-Z0-9]+)/block$#', $path, $m) && $method === 'POST') return handle_block($m[1]);
-    if (preg_match('#^/users/([a-zA-Z0-9]+)/block$#', $path, $m) && $method === 'DELETE') return handle_unblock($m[1]);
+    if ($path === '/report' && $method === 'POST') { handle_report(); return; }
+    if (preg_match('#^/users/([a-zA-Z0-9]+)/block$#', $path, $m) && $method === 'POST') { handle_block($m[1]); return; }
+    if (preg_match('#^/users/([a-zA-Z0-9]+)/block$#', $path, $m) && $method === 'DELETE') { handle_unblock($m[1]); return; }
 
     // Upload avatar
-    if ($path === '/users/avatar' && $method === 'POST') return handle_upload_avatar();
+    if ($path === '/users/avatar' && $method === 'POST') { handle_upload_avatar(); return; }
 
     // Stream video (direct file access but through PHP for byte-range support)
-    if (preg_match('#^/stream/([a-zA-Z0-9_.]+)$#', $path, $m) && $method === 'GET') return handle_stream($m[1], 'videos');
-    if (preg_match('#^/avatar/([a-zA-Z0-9_.]+)$#', $path, $m) && $method === 'GET') return handle_stream($m[1], 'avatars');
+    if (preg_match('#^/stream/([a-zA-Z0-9_.]+)$#', $path, $m) && $method === 'GET') { handle_stream($m[1], 'videos'); return; }
+    if (preg_match('#^/avatar/([a-zA-Z0-9_.]+)$#', $path, $m) && $method === 'GET') { handle_stream($m[1], 'avatars'); return; }
 
     error_response('Not found', 404);
 }
@@ -171,9 +185,7 @@ function handle_logout(): void
 {
     $userId = get_user_id();
     if ($userId) {
-        $headers = getallheaders();
-        $auth = $headers['Authorization'] ?? ($_SERVER['HTTP_AUTHORIZATION'] ?? '');
-        $token = trim(str_replace('Bearer', '', $auth));
+        $token = get_bearer_token();
         $sessions = new JsonDB('sessions');
         $sessions->delete(fn($s) => $s['token'] === $token);
     }
