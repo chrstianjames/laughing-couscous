@@ -7,81 +7,84 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build Release APK
     runs-on: ubuntu-latest
     timeout-minutes: 45
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
+      - uses: gradle/actions/setup-gradle@v4
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.5'
-          build-root-directory: android
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK components
-        shell: bash
+      # android-actions/setup-android is deliberately NOT used: its default
+      # "packages: tools platform-tools" asks sdkmanager for the legacy "tools"
+      # package that Google removed, which fails the job with
+      # "Warning: Failed to find package 'tools'" + exit code 1.
+      - name: Install Android SDK packages
         run: |
-          set -x
-          SDKMAN="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -x "$SDKMAN" ]; then
-            SDKMAN=$(find "$ANDROID_SDK_ROOT/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -1)
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SM="$(ls -1 "$SDK"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | sort -V | tail -1 || true)"
+          if [ -z "$SM" ]; then
+            curl -fsSL --retry 3 -o /tmp/clt.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            mkdir -p "$SDK/cmdline-tools"
+            unzip -q /tmp/clt.zip -d "$SDK/cmdline-tools"
+            mv "$SDK/cmdline-tools/cmdline-tools" "$SDK/cmdline-tools/latest"
+            SM="$SDK/cmdline-tools/latest/bin/sdkmanager"
           fi
-          if [ -z "$SDKMAN" ]; then
-            cd "$ANDROID_SDK_ROOT"
-            wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O cmdline-tools.zip
-            mkdir -p cmdline-tools/latest
-            unzip -q cmdline-tools.zip
-            mv cmdline-tools/* cmdline-tools/latest/ 2>/dev/null || true
-            rm cmdline-tools.zip
-            SDKMAN="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-            chmod +x "$SDKMAN"
+          yes | "$SM" --sdk_root="$SDK" --licenses >/dev/null 2>&1 || true
+          "$SM" --sdk_root="$SDK" platform-tools "platforms;android-34" "build-tools;34.0.0"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "sdk.dir=$SDK" > android/local.properties
+
+      # Signs with SHORTLY_* secrets when present, otherwise a throwaway CI key,
+      # so the artifact is installable instead of app-release-unsigned.apk.
+      - name: Prepare signing key
+        env:
+          KS: ${{ secrets.SHORTLY_KEYSTORE_BASE64 }}
+          SP: ${{ secrets.SHORTLY_STORE_PASSWORD }}
+          KA: ${{ secrets.SHORTLY_KEY_ALIAS }}
+          KP: ${{ secrets.SHORTLY_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          F="$RUNNER_TEMP/release.keystore"
+          if [ -n "${KS:-}" ]; then
+            printf '%s' "$KS" | base64 -d > "$F"
+            P="${SP:?SHORTLY_STORE_PASSWORD required}"; A="${KA:?SHORTLY_KEY_ALIAS required}"; K="${KP:?SHORTLY_KEY_PASSWORD required}"
+          else
+            P=shortly-ci; A=shortly; K=shortly-ci
+            keytool -genkeypair -keystore "$F" -storetype PKCS12 -storepass "$P" -keypass "$K" -alias "$A" -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Shortly CI, O=Shortly, C=US"
           fi
-          yes | "$SDKMAN" --licenses > /dev/null || true
-          "$SDKMAN" --sdk_root="$ANDROID_SDK_ROOT" "platforms;android-34" "build-tools;34.0.0" "platform-tools"
-
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-        working-directory: android
-
-      - name: Download Gradle Wrapper jar
-        run: |
-          mkdir -p gradle/wrapper
-          curl -fsSL --retry 3 -o gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.5.0/gradle/wrapper/gradle-wrapper.jar
-        working-directory: android
-
-      - name: Create local.properties
-        run: |
-          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
-        working-directory: android
+          { echo "SHORTLY_STORE_FILE=$F"; echo "SHORTLY_STORE_PASSWORD=$P"; echo "SHORTLY_KEY_ALIAS=$A"; echo "SHORTLY_KEY_PASSWORD=$K"; } >> "$GITHUB_ENV"
 
       - name: Build release APK
+        working-directory: android
         run: ./gradlew assembleRelease --no-daemon --stacktrace
-        working-directory: android
 
-      - name: Find APK
+      - name: Locate APK
         id: apk
-        run: |
-          APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" -type f | head -1)
-          echo "path=$APK_PATH" >> "$GITHUB_OUTPUT"
         working-directory: android
+        run: |
+          set -euo pipefail
+          P="$(find app/build/outputs/apk/release -name '*.apk' | head -1)"
+          [ -n "$P" ] || { echo "::error::No APK produced"; exit 1; }
+          echo "path=$P" >> "$GITHUB_OUTPUT"
+          { echo "### Shortly release APK"; echo "- \`android/$P\` ($(du -h "$P" | cut -f1))"; } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: shortly-release-apk
           path: android/${{ steps.apk.outputs.path }}
           if-no-files-found: error
+          retention-days: 30

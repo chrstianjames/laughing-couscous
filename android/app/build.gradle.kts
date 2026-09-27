@@ -3,6 +3,29 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+/**
+ * Release signing is optional.
+ *
+ * Values can be supplied either as Gradle properties (-PSHORTLY_STORE_FILE=...) or as plain
+ * environment variables, so CI can sign the APK without any file being committed to the repo.
+ * When nothing is provided the release build falls back to the auto-generated debug key so the
+ * produced APK is still installable for testing.
+ */
+fun signingProp(name: String): String? =
+    (project.findProperty(name) as String?)?.takeIf { it.isNotBlank() }
+        ?: System.getenv(name)?.takeIf { it.isNotBlank() }
+
+val releaseStoreFile = signingProp("SHORTLY_STORE_FILE")
+val releaseStorePassword = signingProp("SHORTLY_STORE_PASSWORD")
+val releaseKeyAlias = signingProp("SHORTLY_KEY_ALIAS")
+val releaseKeyPassword = signingProp("SHORTLY_KEY_PASSWORD")
+val hasReleaseSigning = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword
+).none { it.isNullOrBlank() }
+
 android {
     namespace = "com.shortly.app"
     compileSdk = 34
@@ -15,10 +38,27 @@ android {
         versionName = "1.0.0"
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Fall back to the debug key so `assembleRelease` always yields an installable APK.
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
         debug {
             isMinifyEnabled = false
@@ -30,6 +70,15 @@ android {
     }
     kotlinOptions {
         jvmTarget = "17"
+        // Opt in once, project-wide: Material3 (TopAppBar/ModalBottomSheet/ListItem), the Compose
+        // pager and Media3's unstable API are all used deliberately across the app.
+        freeCompilerArgs += listOf(
+            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
+            "-opt-in=androidx.media3.common.util.UnstableApi",
+            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
+            "-opt-in=kotlinx.coroutines.FlowPreview"
+        )
     }
     buildFeatures {
         compose = true
@@ -66,6 +115,9 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.foundation:foundation")
+    // AnimatedVisibility / fadeIn / fadeOut are imported directly, so declare it explicitly
+    // instead of relying on it leaking in transitively from foundation/material3.
+    implementation("androidx.compose.animation:animation")
     implementation("androidx.paging:paging-runtime-ktx:3.2.1")
     implementation("androidx.paging:paging-compose:3.2.1")
     implementation("androidx.navigation:navigation-compose:2.7.7")
@@ -96,11 +148,6 @@ dependencies {
 
     // Work manager
     implementation("androidx.work:work-runtime-ktx:2.9.0")
-
-    // Accompanist
-    implementation("com.google.accompanist:accompanist-swiperefresh:0.34.0")
-    implementation("com.google.accompanist:accompanist-systemuicontroller:0.34.0")
-    implementation("com.google.accompanist:accompanist-permissions:0.34.0")
 
     // ExoPlayer cache support
     implementation("androidx.media3:media3-database:1.2.1")

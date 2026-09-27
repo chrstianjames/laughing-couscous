@@ -112,16 +112,16 @@ class VideoRepository private constructor() {
         } catch (e: Exception) { Result.failure(e) }
     }
 
-    suspend fun getComments(videoId: String, page: Int): Result<Paginated<Comment>> = withContext(Dispatchers.IO) {
+    suspend fun getComments(videoId: String, page: Int, limit: Int = 20): Result<Paginated<Comment>> = withContext(Dispatchers.IO) {
         try {
-            val resp = api.getComments(videoId, page)
+            val resp = api.getComments(videoId, page, limit)
             Result.success(Paginated(resp.comments.orEmpty(), resp.page, resp.hasMore))
         } catch (e: Exception) { Result.failure(e) }
     }
 
-    suspend fun getReplies(commentId: String, page: Int): Result<Paginated<Comment>> = withContext(Dispatchers.IO) {
+    suspend fun getReplies(commentId: String, page: Int, limit: Int = 20): Result<Paginated<Comment>> = withContext(Dispatchers.IO) {
         try {
-            val resp = api.getCommentReplies(commentId, page)
+            val resp = api.getCommentReplies(commentId, page, limit)
             Result.success(Paginated(resp.replies.orEmpty(), resp.page, resp.hasMore))
         } catch (e: Exception) { Result.failure(e) }
     }

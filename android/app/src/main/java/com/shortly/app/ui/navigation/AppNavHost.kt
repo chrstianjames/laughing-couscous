@@ -2,6 +2,7 @@ package com.shortly.app.ui.navigation
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -9,7 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -25,6 +26,7 @@ import com.shortly.app.ui.screens.comments.CommentsScreen
 import com.shortly.app.ui.screens.feed.FeedScreen
 import com.shortly.app.ui.screens.notifications.NotificationsScreen
 import com.shortly.app.ui.screens.profile.*
+import com.shortly.app.ui.screens.search.HashtagScreen
 import com.shortly.app.ui.screens.search.SearchScreen
 import com.shortly.app.ui.screens.settings.SettingsScreen
 import com.shortly.app.ui.screens.upload.UploadScreen
