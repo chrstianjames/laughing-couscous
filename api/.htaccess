@@ -1,0 +1,20 @@
+# Route all non-file, non-dir requests to index.php
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Block direct access to JSON database files
+    RewriteRule ^data/ - [F,L]
+    # Block hidden / dot files
+    RewriteRule (^|/)\. - [F,L]
+
+    # Block PHP execution in uploads directory
+    RewriteRule ^uploads/.*\.(php|phtml|phar|php[3-8]|pl|py|cgi|sh)$ - [F,L]
+
+    # Route to index.php if request isn't a real file/dir
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.php [L]
+</IfModule>
+
+# Prevent directory listing
+Options -Indexes

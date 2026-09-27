@@ -1,0 +1,30 @@
+# Android
+android/.gradle/
+android/local.properties
+android/**/build/
+android/captures/
+android/.idea/
+android/*.iml
+android/app/*.iml
+android/**/*.iml
+android/.cxx/
+
+# Gradle
+!gradle/wrapper/gradle-wrapper.jar
+
+# API runtime
+api/data/*.tmp
+api/uploads/
+!api/uploads/.htaccess
+api/php_errors.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+node_modules/
