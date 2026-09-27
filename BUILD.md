@@ -1,53 +1,39 @@
-# Setting up GitHub Actions APK Build
+# BUILD.md — Building the Shortly APK
 
-Because the Arena automation token used to push code doesn't have the `workflows` permission
-required to create/modify files under `.github/workflows/`, the workflow YAML is shipped at
-`.setup/android-build.yml` instead.
+## One-click enable GitHub Actions (30 seconds)
 
-## One-step setup (via browser)
+The GitHub Actions workflow template is at `.setup/android-build.yml` in this repo.
+The Arena coding-agent token does not have GitHub's `workflows` permission so it cannot
+write files under `.github/workflows/` directly (GitHub rejects those pushes). But **you**
+own the repository and can add the file in one click by opening this URL:
 
-After pushing this repository to GitHub, enable automatic release-APK builds by copying the
-workflow into place:
+👉 **[Click here to add the workflow file via GitHub's web editor](https://github.com/chrstianjames/laughing-couscous/new/arena/01a0e134-laughing-couscous?filename=.github%2Fworkflows%2Fandroid-build.yml&value=name%3A+Build+Android+APK%0A%0Aon%3A%0A++push%3A%0A++++branches%3A+%5Bmain%2C+master%2C+arena%2F01a0e134-laughing-couscous%5D%0A++pull_request%3A%0A++++branches%3A+%5Bmain%2C+master%5D%0A++workflow_dispatch%3A%0A%0Ajobs%3A%0A++build%3A%0A++++name%3A+Build+Release+APK%0A++++runs-on%3A+ubuntu-latest%0A++++timeout-minutes%3A+45%0A%0A++++steps%3A%0A++++++-+name%3A+Checkout%0A++++++++uses%3A+actions%2Fcheckout%40v4%0A%0A++++++-+name%3A+Set+up+JDK+17%0A++++++++uses%3A+actions%2Fsetup-java%40v4%0A++++++++with%3A%0A++++++++++java-version%3A+%2717%27%0A++++++++++distribution%3A+%27temurin%27%0A%0A++++++-+name%3A+Setup+Gradle%0A++++++++uses%3A+gradle%2Factions%2Fsetup-gradle%40v4%0A++++++++with%3A%0A++++++++++gradle-version%3A+%278.5%27%0A++++++++++build-root-directory%3A+android%0A%0A++++++-+name%3A+Setup+Android+SDK%0A++++++++uses%3A+android-actions%2Fsetup-android%40v3%0A%0A++++++-+name%3A+Install+Android+SDK+components%0A++++++++shell%3A+bash%0A++++++++run%3A+%7C%0A++++++++++set+-x%0A++++++++++SDKMAN%3D%22%24ANDROID_SDK_ROOT%2Fcmdline-tools%2Flatest%2Fbin%2Fsdkmanager%22%0A++++++++++if+%5B+%21+-x+%22%24SDKMAN%22+%5D%3B+then%0A++++++++++++SDKMAN%3D%24%28find+%22%24ANDROID_SDK_ROOT%2Fcmdline-tools%22+-name+sdkmanager+-type+f+2%3E%2Fdev%2Fnull+%7C+head+-1%29%0A++++++++++fi%0A++++++++++if+%5B+-z+%22%24SDKMAN%22+%5D%3B+then%0A++++++++++++cd+%22%24ANDROID_SDK_ROOT%22%0A++++++++++++wget+-q+https%3A%2F%2Fdl.google.com%2Fandroid%2Frepository%2Fcommandlinetools-linux-11076708_latest.zip+-O+cmdline-tools.zip%0A++++++++++++mkdir+-p+cmdline-tools%2Flatest%0A++++++++++++unzip+-q+cmdline-tools.zip%0A++++++++++++mv+cmdline-tools%2F*+cmdline-tools%2Flatest%2F+2%3E%2Fdev%2Fnull+%7C%7C+true%0A++++++++++++rm+cmdline-tools.zip%0A++++++++++++SDKMAN%3D%22%24ANDROID_SDK_ROOT%2Fcmdline-tools%2Flatest%2Fbin%2Fsdkmanager%22%0A++++++++++++chmod+%2Bx+%22%24SDKMAN%22%0A++++++++++fi%0A++++++++++yes+%7C+%22%24SDKMAN%22+--licenses+%3E+%2Fdev%2Fnull+%7C%7C+true%0A++++++++++%22%24SDKMAN%22+--sdk_root%3D%22%24ANDROID_SDK_ROOT%22+%22platforms%3Bandroid-34%22+%22build-tools%3B34.0.0%22+%22platform-tools%22%0A%0A++++++-+name%3A+Grant+execute+permission+for+gradlew%0A++++++++run%3A+chmod+%2Bx+gradlew%0A++++++++working-directory%3A+android%0A%0A++++++-+name%3A+Download+Gradle+Wrapper+jar%0A++++++++run%3A+%7C%0A++++++++++mkdir+-p+gradle%2Fwrapper%0A++++++++++curl+-fsSL+--retry+3+-o+gradle%2Fwrapper%2Fgradle-wrapper.jar+https%3A%2F%2Fraw.githubusercontent.com%2Fgradle%2Fgradle%2Fv8.5.0%2Fgradle%2Fwrapper%2Fgradle-wrapper.jar%0A++++++++working-directory%3A+android%0A%0A++++++-+name%3A+Create+local.properties%0A++++++++run%3A+%7C%0A++++++++++echo+%22sdk.dir%3D%24ANDROID_SDK_ROOT%22+%3E+local.properties%0A++++++++working-directory%3A+android%0A%0A++++++-+name%3A+Build+release+APK%0A++++++++run%3A+.%2Fgradlew+assembleRelease+--no-daemon+--stacktrace%0A++++++++working-directory%3A+android%0A%0A++++++-+name%3A+Find+APK%0A++++++++id%3A+apk%0A++++++++run%3A+%7C%0A++++++++++APK_PATH%3D%24%28find+app%2Fbuild%2Foutputs%2Fapk%2Frelease+-name+%22%2A.apk%22+-type+f+%7C+head+-1%29%0A++++++++++echo+%22path%3D%24APK_PATH%22+%3E%3E+%22%24GITHUB_OUTPUT%22%0A++++++++working-directory%3A+android%0A%0A++++++-+name%3A+Upload+APK+artifact%0A++++++++uses%3A+actions%2Fupload-artifact%40v4%0A++++++++with%3A%0A++++++++++name%3A+shortly-release-apk%0A++++++++++path%3A+android%2F%24%7B%7B+steps.apk.outputs.path+%7D%7D%0A++++++++++if-no-files-found%3A+error%0A)**
 
-1. Open this repository on GitHub.
-2. Click **Add file → Create new file**.
-3. Set the filename to: `.github/workflows/android-build.yml`
-4. Paste the entire contents of `.setup/android-build.yml` (already in this repo) into the editor.
-5. Commit directly to your branch.
+The link opens GitHub's "Create new file" page with the filename pre-set to
+`.github/workflows/android-build.yml` and the entire workflow YAML pre-filled.
+Just scroll to the bottom and click **Commit new file**.
 
-GitHub Actions will automatically run on the next push and produce a signed release APK as a
-downloadable artifact under the **Actions** tab.
+Once committed, GitHub Actions will automatically:
+1. Run on the push you just made
+2. Set up JDK 17 and Android SDK 34
+3. Run `./gradlew assembleRelease`
+4. Upload `shortly-release-apk` as a downloadable artifact on the **Actions** tab
 
-## Local build (requires Android Studio / JDK 17 + Android SDK 34)
+## Local build (Android Studio / JDK 17)
+
+Requires: JDK 17, Android SDK 34 (Build-Tools 34.0.0)
 
 ```bash
 cd android
 ./gradlew assembleRelease
-# Output APK: android/app/build/outputs/apk/release/app-release-unsigned.apk
+# APK: android/app/build/outputs/apk/release/app-release-unsigned.apk
 ```
-
-## What the workflow does
-
-1. Checks out the code
-2. Sets up JDK 17 (Temurin)
-3. Caches Gradle dependencies
-4. Installs Android SDK 34, Build-Tools 34.0.0, Platform-Tools
-5. Downloads the Gradle wrapper jar
-6. Runs `./gradlew assembleRelease`
-7. Uploads the resulting APK as a GitHub Actions artifact you can download
 
 ## API deployment
 
-Upload the contents of the `api/` directory to any PHP 8+ web host:
+Upload the `api/` folder to any PHP 8+ host and make these directories writable:
+- `api/data/`
+- `api/uploads/videos/`
+- `api/uploads/avatars/`
 
-```
-api/config.php         <- core config / JSON DB helpers
-api/index.php          <- router + all endpoints
-api/data/              <- JSON database (must be writable by the web server)
-api/uploads/           <- uploaded videos/avatars (created automatically)
-api/uploads/.htaccess  <- blocks PHP execution in uploads
-api/.htaccess          <- blocks direct access to data/
-```
-
-Make sure `data/`, `uploads/videos/`, and `uploads/avatars/` are writable (chmod 775 or 777
-depending on host).
+`.htaccess` rules already protect database files and disable PHP execution in uploads.
