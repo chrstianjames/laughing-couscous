@@ -14,151 +14,75 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  COMPILE_SDK: '34'
-  BUILD_TOOLS: 34.0.0
-
 jobs:
   build:
     name: Build Release APK
     runs-on: ubuntu-latest
     timeout-minutes: 45
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
+      - uses: gradle/actions/setup-gradle@v4
 
-      # Caches ~/.gradle between runs. NOTE: `build-root-directory` is NOT a valid input for
-      # setup-gradle (it only applies to gradle-build-action) - passing it logs an
-      # "Unexpected input(s)" warning, so the build directory is set per step instead.
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      # The android-actions/setup-android action is intentionally NOT used: its default
-      # `packages: tools platform-tools` asks sdkmanager for the `tools` package, which Google
-      # removed from the SDK repository. sdkmanager then dies with
-      # "Warning: Failed to find package 'tools'" + exit code 1 and fails the whole job.
-      # The GitHub runner image already ships the SDK, so we only install what the app needs.
+      # android-actions/setup-android is deliberately NOT used: its default
+      # "packages: tools platform-tools" asks sdkmanager for the legacy "tools"
+      # package that Google removed, which fails the job with
+      # "Warning: Failed to find package 'tools'" + exit code 1.
       - name: Install Android SDK packages
-        shell: bash
         run: |
           set -euo pipefail
-
-          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          if [ ! -d "$SDK_ROOT" ]; then
-            SDK_ROOT="$RUNNER_TEMP/android-sdk"
-            mkdir -p "$SDK_ROOT"
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SM="$(ls -1 "$SDK"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | sort -V | tail -1 || true)"
+          if [ -z "$SM" ]; then
+            curl -fsSL --retry 3 -o /tmp/clt.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            mkdir -p "$SDK/cmdline-tools"
+            unzip -q /tmp/clt.zip -d "$SDK/cmdline-tools"
+            mv "$SDK/cmdline-tools/cmdline-tools" "$SDK/cmdline-tools/latest"
+            SM="$SDK/cmdline-tools/latest/bin/sdkmanager"
           fi
-          echo "ANDROID_HOME=$SDK_ROOT"        >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$SDK_ROOT"    >> "$GITHUB_ENV"
+          yes | "$SM" --sdk_root="$SDK" --licenses >/dev/null 2>&1 || true
+          "$SM" --sdk_root="$SDK" platform-tools "platforms;android-34" "build-tools;34.0.0"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "sdk.dir=$SDK" > android/local.properties
 
-          # Use the newest sdkmanager present, or bootstrap the command line tools ourselves.
-          SDKMANAGER="$(ls -1 "$SDK_ROOT"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | sort -V | tail -1 || true)"
-          if [ -z "$SDKMANAGER" ]; then
-            echo "No sdkmanager found - downloading command line tools"
-            TOOLS_ZIP="$RUNNER_TEMP/commandlinetools.zip"
-            curl -fsSL --retry 3 -o "$TOOLS_ZIP" \
-              https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
-            mkdir -p "$SDK_ROOT/cmdline-tools"
-            unzip -q "$TOOLS_ZIP" -d "$SDK_ROOT/cmdline-tools"
-            mv "$SDK_ROOT/cmdline-tools/cmdline-tools" "$SDK_ROOT/cmdline-tools/latest"
-            SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-          fi
-          chmod +x "$SDKMANAGER" 2>/dev/null || true
-          echo "Using sdkmanager: $SDKMANAGER"
-
-          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses > /dev/null 2>&1 || true
-          "$SDKMANAGER" --sdk_root="$SDK_ROOT" \
-            "platform-tools" "platforms;android-$COMPILE_SDK" "build-tools;$BUILD_TOOLS"
-
-          echo "Installed SDK packages:"
-          "$SDKMANAGER" --sdk_root="$SDK_ROOT" --list_installed || true
-
-      - name: Point Gradle at the Android SDK
-        shell: bash
-        working-directory: android
-        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
-
-      # Signing is optional. If the repository secrets exist the APK is signed with the real
-      # release key, otherwise a throwaway CI key is generated so `assembleRelease` still
-      # produces an installable APK instead of an unsigned one.
-      - name: Prepare release signing
-        id: signing
-        shell: bash
+      # Signs with SHORTLY_* secrets when present, otherwise a throwaway CI key,
+      # so the artifact is installable instead of app-release-unsigned.apk.
+      - name: Prepare signing key
         env:
-          KEYSTORE_BASE64: ${{ secrets.SHORTLY_KEYSTORE_BASE64 }}
-          STORE_PASSWORD: ${{ secrets.SHORTLY_STORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.SHORTLY_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.SHORTLY_KEY_PASSWORD }}
+          KS: ${{ secrets.SHORTLY_KEYSTORE_BASE64 }}
+          SP: ${{ secrets.SHORTLY_STORE_PASSWORD }}
+          KA: ${{ secrets.SHORTLY_KEY_ALIAS }}
+          KP: ${{ secrets.SHORTLY_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          KS_DIR="$RUNNER_TEMP/keystore"
-          mkdir -p "$KS_DIR"
-          KS_PATH="$KS_DIR/release.keystore"
-
-          if [ -n "${KEYSTORE_BASE64:-}" ]; then
-            echo "Using release keystore from repository secrets"
-            printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$KS_PATH"
-            STORE="${STORE_PASSWORD:?SHORTLY_STORE_PASSWORD secret is required}"
-            ALIAS="${KEY_ALIAS:?SHORTLY_KEY_ALIAS secret is required}"
-            KEY="${KEY_PASSWORD:?SHORTLY_KEY_PASSWORD secret is required}"
+          F="$RUNNER_TEMP/release.keystore"
+          if [ -n "${KS:-}" ]; then
+            printf '%s' "$KS" | base64 -d > "$F"
+            P="${SP:?SHORTLY_STORE_PASSWORD required}"; A="${KA:?SHORTLY_KEY_ALIAS required}"; K="${KP:?SHORTLY_KEY_PASSWORD required}"
           else
-            echo "No keystore secrets found - generating a temporary CI signing key"
-            STORE="shortly-ci"
-            ALIAS="shortly"
-            KEY="shortly-ci"
-            keytool -genkeypair -v \
-              -keystore "$KS_PATH" \
-              -storetype PKCS12 \
-              -storepass "$STORE" -keypass "$KEY" \
-              -alias "$ALIAS" -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Shortly CI, OU=Build, O=Shortly, C=US"
+            P=shortly-ci; A=shortly; K=shortly-ci
+            keytool -genkeypair -keystore "$F" -storetype PKCS12 -storepass "$P" -keypass "$K" -alias "$A" -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Shortly CI, O=Shortly, C=US"
           fi
-
-          chmod 600 "$KS_PATH"
-          echo "SHORTLY_STORE_FILE=$KS_PATH"      >> "$GITHUB_ENV"
-          echo "SHORTLY_STORE_PASSWORD=$STORE"    >> "$GITHUB_ENV"
-          echo "SHORTLY_KEY_ALIAS=$ALIAS"         >> "$GITHUB_ENV"
-          echo "SHORTLY_KEY_PASSWORD=$KEY"        >> "$GITHUB_ENV"
+          { echo "SHORTLY_STORE_FILE=$F"; echo "SHORTLY_STORE_PASSWORD=$P"; echo "SHORTLY_KEY_ALIAS=$A"; echo "SHORTLY_KEY_PASSWORD=$K"; } >> "$GITHUB_ENV"
 
       - name: Build release APK
-        shell: bash
         working-directory: android
-        run: |
-          chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon --stacktrace
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Locate APK
         id: apk
-        shell: bash
         working-directory: android
         run: |
           set -euo pipefail
-          APK_PATH="$(find app/build/outputs/apk/release -name '*.apk' -type f | head -1)"
-          if [ -z "$APK_PATH" ]; then
-            echo "::error::No APK found under app/build/outputs/apk/release"
-            find app/build/outputs -type f -print || true
-            exit 1
-          fi
-          echo "path=$APK_PATH" >> "$GITHUB_OUTPUT"
-          SIZE="$(du -h "$APK_PATH" | cut -f1)"
-          echo "size=$SIZE"     >> "$GITHUB_OUTPUT"
-          {
-            echo "### Shortly release APK"
-            echo ""
-            echo "- File: \`android/$APK_PATH\`"
-            echo "- Size: $SIZE"
-            echo "- Commit: ${GITHUB_SHA:0:7}"
-          } >> "$GITHUB_STEP_SUMMARY"
+          P="$(find app/build/outputs/apk/release -name '*.apk' | head -1)"
+          [ -n "$P" ] || { echo "::error::No APK produced"; exit 1; }
+          echo "path=$P" >> "$GITHUB_OUTPUT"
+          { echo "### Shortly release APK"; echo "- \`android/$P\` ($(du -h "$P" | cut -f1))"; } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: shortly-release-apk
           path: android/${{ steps.apk.outputs.path }}

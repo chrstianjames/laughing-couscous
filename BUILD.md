@@ -20,13 +20,14 @@ What it does:
 1. `actions/checkout`
 2. `actions/setup-java` — Temurin JDK 17 (required by AGP 8.2)
 3. `gradle/actions/setup-gradle` — caches `~/.gradle` between runs
-4. `sdkmanager` — accepts licences and installs `platform-tools`,
-   `platforms;android-34`, `build-tools;34.0.0`
-5. writes `android/local.properties` (`sdk.dir=…`)
-6. prepares signing (see below)
-7. `./gradlew assembleRelease --no-daemon --stacktrace` inside `android/`
-8. uploads the APK as the **`shortly-release-apk`** artifact and writes its path
-   and size into the job summary
+4. `sdkmanager` — accepts licences, installs `platform-tools`,
+   `platforms;android-34`, `build-tools;34.0.0` and writes
+   `android/local.properties` (`sdk.dir=…`)
+5. prepares signing (see below)
+6. `./gradlew assembleRelease --no-daemon --stacktrace` inside `android/`
+7. locates the APK, fails loudly if there is none, writes path/size to the job
+   summary
+8. uploads it as the **`shortly-release-apk`** artifact (30-day retention)
 
 Download the artifact from the run page:
 <https://github.com/chrstianjames/laughing-couscous/actions>
