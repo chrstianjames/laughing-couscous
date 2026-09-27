@@ -7,7 +7,7 @@
 > **`.setup/android-build.yml`**. Copy it over
 > `.github/workflows/android-build.yml` on `main` (via the web editor), or grant
 > the Arena GitHub App the *Workflows: Read and write* permission and let the
-> agent push it. Everything else in this document is already in place.
+> agent push it. All three options are described in `.setup/APPLY-WORKFLOW.md`. Everything else in this document is already in place.
 >
 > Until then the job keeps failing at **Setup Android SDK** with
 > `Warning: Failed to find package 'tools'`.

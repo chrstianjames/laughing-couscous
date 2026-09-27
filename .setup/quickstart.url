@@ -1,15 +1,4 @@
-# The FIXED workflow YAML is committed next to this file:  .setup/android-build.yml
-#
-# GitHub will not let the Arena coding agent write to .github/workflows/** , so
-# apply it yourself (one of these):
-#
-# A) Grant the permission, then ask the agent to push it:
-#      https://github.com/settings/installations  ->  Arena AI Coding Agent  ->
-#      Configure  ->  Repository permissions  ->  Workflows  ->  Read and write
-#
-# B) Paste it in the web editor:
-#      https://github.com/chrstianjames/laughing-couscous/edit/main/.github/workflows/android-build.yml
-#    select all -> delete -> paste the contents of .setup/android-build.yml -> Commit to main
-#
-# Raw copy of the fixed YAML:
-#      https://raw.githubusercontent.com/chrstianjames/laughing-couscous/arena/01a0e194-laughing-couscous/.setup/android-build.yml
+# The one-click link and all other ways to apply the fixed workflow are in
+# APPLY-WORKFLOW.md next to this file (the URL itself is ~11 KB, too long for
+# this placeholder).
+APPLY-WORKFLOW.md

@@ -16,7 +16,7 @@ PR #1 has been **merged into `main`**. The code is live on the default branch.
 >
 > **`.setup/android-build.yml`**
 >
-> Apply it in either of two ways:
+> Apply it in one of three ways — see [`.setup/APPLY-WORKFLOW.md`](.setup/APPLY-WORKFLOW.md):
 >
 > * **Grant the permission** — *Settings → GitHub Apps → Arena AI Coding Agent →
 >   Configure → Repository permissions → Workflows → Read and write*, then ask the
