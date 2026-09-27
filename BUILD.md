@@ -2,29 +2,22 @@
 
 ## Continuous integration
 
-> **⚠️ One manual step.** GitHub blocks this agent from writing
-> `.github/workflows/**`, so the corrected workflow is committed at
-> **`.setup/android-build.yml`**. Copy it over
-> `.github/workflows/android-build.yml` on `main` (via the web editor), or grant
-> the Arena GitHub App the *Workflows: Read and write* permission and let the
-> agent push it. All three options are described in `.setup/APPLY-WORKFLOW.md`. Everything else in this document is already in place.
->
-> Until then the job keeps failing at **Setup Android SDK** with
-> `Warning: Failed to find package 'tools'`.
-
-The workflow runs on every push and pull request to `main`/`master` and can be
-started manually (*Actions → Build Android APK → Run workflow*).
+The workflow is `.github/workflows/android-build.yml`. It runs on every push and
+pull request to `main`/`master` (and on `arena/**` branches) and can be started
+manually (*Actions → Build Android APK → Run workflow*).
 
 What it does:
 
 1. `actions/checkout`
 2. `actions/setup-java` — Temurin JDK 17 (required by AGP 8.2)
 3. `gradle/actions/setup-gradle` — caches `~/.gradle` between runs
-4. `sdkmanager` — accepts licences, installs `platform-tools`,
-   `platforms;android-34`, `build-tools;34.0.0` and writes
-   `android/local.properties` (`sdk.dir=…`)
+4. uses the Android SDK already on the `ubuntu-24.04` runner
+   (`platforms;android-34`, `build-tools;34.0.0`) and writes
+   `android/local.properties` (`sdk.dir=…`). It does **not** call
+   `android-actions/setup-android` (that action requests the removed `tools`
+   package and fails the job)
 5. prepares signing (see below)
-6. `./gradlew assembleRelease --no-daemon --stacktrace` inside `android/`
+6. `./gradlew assembleRelease --stacktrace` inside `android/`
 7. locates the APK, fails loudly if there is none, writes path/size to the job
    summary
 8. uploads it as the **`shortly-release-apk`** artifact (30-day retention)
