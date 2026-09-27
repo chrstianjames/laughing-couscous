@@ -8,24 +8,6 @@ PR #1 has been **merged into `main`**. The code is live on the default branch.
 
 ## APK builds on GitHub Actions
 
-> ### ⚠️ One manual step is still required
->
-> GitHub refuses to let the Arena coding agent write to `.github/workflows/**`
-> (`refusing to allow a GitHub App to create or update workflow ... without
-> 'workflows' permission`), so the **fixed** workflow is committed here instead:
->
-> **`.setup/android-build.yml`**
->
-> Apply it in one of three ways — see [`.setup/APPLY-WORKFLOW.md`](.setup/APPLY-WORKFLOW.md):
->
-> * **Grant the permission** — *Settings → GitHub Apps → Arena AI Coding Agent →
->   Configure → Repository permissions → Workflows → Read and write*, then ask the
->   agent to push it. Everything else is already done.
-> * **Paste it yourself** — open
->   [`.github/workflows/android-build.yml`](https://github.com/chrstianjames/laughing-couscous/edit/main/.github/workflows/android-build.yml),
->   select all, delete, paste the contents of
->   [`.setup/android-build.yml`](.setup/android-build.yml), and commit to `main`.
->
 > Until that happens the Actions run still fails in **Setup Android SDK** with
 > `Warning: Failed to find package 'tools'` — that step comes from
 > `android-actions/setup-android@v3`, which is removed in the fixed version.
