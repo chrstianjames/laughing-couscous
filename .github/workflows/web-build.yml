@@ -1,0 +1,68 @@
+name: Build Web (Compose Multiplatform / Wasm)
+
+on:
+  push:
+    branches: [main, master, "arena/**"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Wasm distribution
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # The Android Gradle Plugin is applied in the same build (:app, :shared),
+      # so Gradle needs sdk.dir even though only the Wasm target is compiled.
+      - name: Point Gradle at the preinstalled Android SDK
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "sdk.dir=$SDK" > android/local.properties
+
+      - name: Build static web files
+        working-directory: android
+        run: chmod +x gradlew && ./gradlew :webApp:wasmJsBrowserDistribution --stacktrace
+
+      - name: Collect distribution
+        working-directory: android
+        run: |
+          set -euo pipefail
+          D="webApp/build/dist/wasmJs/productionExecutable"
+          test -f "$D/index.html" || { echo "::error::No index.html in $D"; find webApp/build/dist -type f || true; exit 1; }
+          ls -la "$D"
+          {
+            echo "### Shortly web build (Kotlin/Wasm)"
+            echo ""
+            echo "Static files in \`android/$D\` — deploy the folder to any static host."
+            echo "- Artifact: **shortly-web-wasm**"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload web artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shortly-web-wasm
+          path: android/webApp/build/dist/wasmJs/productionExecutable
+          if-no-files-found: error
+          retention-days: 30

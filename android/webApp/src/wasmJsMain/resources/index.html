@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#000000">
+    <title>Shortly</title>
+    <style>
+        html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
+        /* Compose renders into this canvas; it must stay transparent so <video>
+           elements placed behind it (z-index 0) remain visible. */
+        canvas { position: fixed; inset: 0; z-index: 1; background: transparent !important; outline: none; }
+        video { position: fixed; z-index: 0; }
+        #loading { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+                   justify-content: center; color: #fff; font-family: system-ui, sans-serif; z-index: 2; }
+        #loading .dot { width: 40px; height: 40px; border-radius: 50%; border: 3px solid #333;
+                        border-top-color: #FE2C55; animation: spin 0.9s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div id="loading"><div class="dot"></div><p>Loading Shortly…</p></div>
+    <script>
+        // Remove the splash once the canvas is attached by Compose.
+        new MutationObserver(function (m, o) {
+            if (document.querySelector('canvas')) { var l = document.getElementById('loading'); if (l) l.remove(); o.disconnect(); }
+        }).observe(document.body, { childList: true });
+    </script>
+    <script type="application/javascript" src="shortly.js"></script>
+</body>
+</html>
