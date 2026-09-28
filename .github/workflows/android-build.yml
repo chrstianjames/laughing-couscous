@@ -132,10 +132,13 @@ jobs:
         run: |
           set +e
           if [ -f build.log ]; then
-            ERRS="$(grep -E '^(e: |w: .*deprecat)' build.log | grep -E '^e: ' | head -80)"
-            WRONG="$(grep -A 15 'What went wrong' build.log | head -60)"
-            MSG="$(printf '%s\n\n%s' "$ERRS" "$WRONG" | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
-            echo "::error title=Gradle build failed::${MSG}"
+            enc() { sed 's#file:///home/runner/work/laughing-couscous/laughing-couscous/##' | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g'; }
+            COMMON="$(grep -E '^e: ' build.log | grep 'commonMain' | sort -u | head -70 | enc)"
+            OTHER="$(grep -E '^e: ' build.log | grep -v 'commonMain' | sort -u | head -70 | enc)"
+            WRONG="$(grep -A 12 'What went wrong' build.log | head -40 | enc)"
+            [ -n "$COMMON" ] && echo "::error title=commonMain errors::${COMMON}"
+            [ -n "$OTHER" ] && echo "::error title=platform errors::${OTHER}"
+            echo "::error title=Gradle failure::${WRONG}"
           fi
 
       - name: Collect APK
