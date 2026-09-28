@@ -118,7 +118,7 @@ actual fun VideoPlayerView(
     Box(
         modifier.onGloballyPositioned { coords ->
             val r = coords.boundsInWindow()
-            player.setBounds(r.left / density, r.top / density, r.width / density, r.height / density)
+            player.setBounds((r.left / density).toDouble(), (r.top / density).toDouble(), (r.width / density).toDouble(), (r.height / density).toDouble())
         }
     )
 }

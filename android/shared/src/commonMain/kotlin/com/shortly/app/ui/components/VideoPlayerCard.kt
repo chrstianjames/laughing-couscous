@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.shortly.app.data.model.Video
 import com.shortly.app.data.repository.UserRepository
+import com.shortly.app.platform.currentTimeMillis
 import com.shortly.app.platform.VideoPlayer
 import com.shortly.app.platform.VideoPlayerView
 import com.shortly.app.platform.composeDrawsVideoPoster
@@ -77,6 +78,7 @@ fun VideoPlayerCard(
 
     var showPauseIcon by remember { mutableStateOf(false) }
     var hearts by remember { mutableStateOf(listOf<HeartBurst>()) }
+    var heartSeq by remember { mutableStateOf(0L) }
 
     val currentUserId = UserRepository.instance.currentUser.collectAsState().value?.id
     val isOwnVideo = video.author?.id != null && video.author.id == currentUserId
@@ -109,7 +111,7 @@ fun VideoPlayerCard(
                     },
                     onDoubleTap = { pos ->
                         // TikTok: double tap always shows a heart, and likes if not liked yet
-                        val burst = HeartBurst(System.nanoTime(), pos, (-25..25).random().toFloat())
+                        val burst = HeartBurst(currentTimeMillis() * 1000 + heartSeq++, pos, (-25..25).random().toFloat())
                         hearts = hearts + burst
                         scope.launch { delay(900); hearts = hearts - burst }
                         if (!video.isLiked) onLike(video)
