@@ -78,7 +78,7 @@ class PickedFile(
 
 /**
  * Returns a launcher that opens the platform file picker for the given
- * MIME filter ("video/*", "image/*") and delivers the picked file.
+ * MIME filter (e.g. video or image) and delivers the picked file.
  */
 @Composable
 expect fun rememberFilePicker(mimeFilter: String, onPicked: (PickedFile?) -> Unit): () -> Unit
