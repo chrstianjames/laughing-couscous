@@ -55,8 +55,10 @@ jobs:
           set +e
           if [ -f build.log ]; then
             enc() { sed 's#file:///home/runner/work/laughing-couscous/laughing-couscous/##' | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g'; }
-            COMMON="$(grep -E '^e: ' build.log | grep 'commonMain' | sort -u | head -70 | enc)"
-            OTHER="$(grep -E '^e: ' build.log | grep -v 'commonMain' | sort -u | head -70 | enc)"
+            # at most 4 errors per file so every failing file is visible
+            PERFILE="$(grep -E '^e: ' build.log | sort -u | awk '{split($2,a,":"); f=a[1]; c[f]++; if (c[f]<=4) print}')"
+            COMMON="$(printf '%s\n' "$PERFILE" | grep 'commonMain' | head -70 | enc)"
+            OTHER="$(printf '%s\n' "$PERFILE" | grep -v 'commonMain' | head -70 | enc)"
             WRONG="$(grep -A 12 'What went wrong' build.log | head -40 | enc)"
             [ -n "$COMMON" ] && echo "::error title=commonMain errors::${COMMON}"
             [ -n "$OTHER" ] && echo "::error title=platform errors::${OTHER}"
