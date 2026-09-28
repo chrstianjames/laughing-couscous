@@ -121,7 +121,22 @@ jobs:
 
       - name: Build release APK
         working-directory: android
-        run: chmod +x gradlew && ./gradlew assembleRelease --stacktrace
+        run: |
+          set -o pipefail
+          chmod +x gradlew
+          ./gradlew assembleRelease --stacktrace 2>&1 | tee build.log
+
+      - name: Report compiler errors as annotations
+        if: failure()
+        working-directory: android
+        run: |
+          set +e
+          if [ -f build.log ]; then
+            ERRS="$(grep -E '^(e: |w: .*deprecat)' build.log | grep -E '^e: ' | head -80)"
+            WRONG="$(grep -A 15 'What went wrong' build.log | head -60)"
+            MSG="$(printf '%s\n\n%s' "$ERRS" "$WRONG" | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
+            echo "::error title=Gradle build failed::${MSG}"
+          fi
 
       - name: Collect APK
         id: apk
