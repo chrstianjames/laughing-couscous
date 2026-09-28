@@ -2,94 +2,108 @@
 declare(strict_types=1);
 require_once __DIR__ . '/config.php';
 
-// Parse request
-$requestUri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-// Strip base path
-$scriptName = dirname($_SERVER['SCRIPT_NAME']);
-$scriptName = rtrim($scriptName, '/');
-$path = substr($requestUri, strlen($scriptName));
-$path = '/' . ltrim($path, '/');
-$method = $_SERVER['REQUEST_METHOD'];
-
-// Route
+// Parse request and route. Everything, including path parsing, is inside the
+// try/catch so a missing/odd REQUEST_URI or SCRIPT_NAME never fatals.
 try {
+    $method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+    $path = resolve_request_path();
     route($method, $path);
 } catch (Throwable $e) {
     error_log('API Error: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
     error_response('Internal server error', 500);
 }
 
+function resolve_request_path(): string
+{
+    $requestUri = (string)($_SERVER['REQUEST_URI'] ?? ($_SERVER['PATH_INFO'] ?? '/'));
+    $parsed = parse_url($requestUri, PHP_URL_PATH);
+    $requestPath = is_string($parsed) && $parsed !== '' ? $parsed : '/';
+
+    // Strip base path (e.g. "/api") derived from SCRIPT_NAME
+    $scriptName = (string)($_SERVER['SCRIPT_NAME'] ?? '');
+    $base = $scriptName !== '' ? rtrim(str_replace('\\', '/', dirname($scriptName)), '/') : '';
+    if ($base !== '' && $base !== '.' && strpos($requestPath, $base) === 0) {
+        $requestPath = substr($requestPath, strlen($base));
+    }
+    // Allow calling /api/index.php/auth/login directly
+    if (preg_match('#^/?index\.php(/|$)#', $requestPath)) {
+        $requestPath = (string)preg_replace('#^/?index\.php#', '', $requestPath, 1);
+    }
+    $requestPath = '/' . ltrim($requestPath, '/');
+    return rtrim($requestPath, '/') ?: '/';
+}
+
 function route(string $method, string $path): void
 {
     // Auth endpoints
-    if ($path === '/auth/register' && $method === 'POST') return handle_register();
-    if ($path === '/auth/login' && $method === 'POST') return handle_login();
-    if ($path === '/auth/logout' && $method === 'POST') return handle_logout();
-    if ($path === '/auth/me' && $method === 'GET') return handle_me();
+    if ($path === '/auth/register' && $method === 'POST') { handle_register(); return; }
+    if ($path === '/auth/login' && $method === 'POST') { handle_login(); return; }
+    if ($path === '/auth/logout' && $method === 'POST') { handle_logout(); return; }
+    if ($path === '/auth/me' && $method === 'GET') { handle_me(); return; }
 
     // Users
-    if (preg_match('#^/users/([a-zA-Z0-9]+)$#', $path, $m) && $method === 'GET') return handle_get_user($m[1]);
-    if (preg_match('#^/users/([a-zA-Z0-9]+)/videos$#', $path, $m) && $method === 'GET') return handle_user_videos($m[1]);
-    if ($path === '/users/profile/edit' && $method === 'POST') return handle_edit_profile();
-    if ($path === '/users/search' && $method === 'GET') return handle_search_users();
+    if (preg_match('#^/users/([a-zA-Z0-9]+)$#', $path, $m) && $method === 'GET') { handle_get_user($m[1]); return; }
+    if (preg_match('#^/users/([a-zA-Z0-9]+)/videos$#', $path, $m) && $method === 'GET') { handle_user_videos($m[1]); return; }
+    if ($path === '/users/profile/edit' && $method === 'POST') { handle_edit_profile(); return; }
+    if ($path === '/users/search' && $method === 'GET') { handle_search_users(); return; }
 
     // Follow
-    if (preg_match('#^/users/([a-zA-Z0-9]+)/follow$#', $path, $m) && $method === 'POST') return handle_follow($m[1]);
-    if (preg_match('#^/users/([a-zA-Z0-9]+)/follow$#', $path, $m) && $method === 'DELETE') return handle_unfollow($m[1]);
-    if (preg_match('#^/users/([a-zA-Z0-9]+)/followers$#', $path, $m) && $method === 'GET') return handle_followers($m[1]);
-    if (preg_match('#^/users/([a-zA-Z0-9]+)/following$#', $path, $m) && $method === 'GET') return handle_following($m[1]);
+    if (preg_match('#^/users/([a-zA-Z0-9]+)/follow$#', $path, $m) && $method === 'POST') { handle_follow($m[1]); return; }
+    if (preg_match('#^/users/([a-zA-Z0-9]+)/follow$#', $path, $m) && $method === 'DELETE') { handle_unfollow($m[1]); return; }
+    if (preg_match('#^/users/([a-zA-Z0-9]+)/followers$#', $path, $m) && $method === 'GET') { handle_followers($m[1]); return; }
+    if (preg_match('#^/users/([a-zA-Z0-9]+)/following$#', $path, $m) && $method === 'GET') { handle_following($m[1]); return; }
 
     // Videos
-    if ($path === '/videos/upload' && $method === 'POST') return handle_upload_video();
-    if (preg_match('#^/videos/([a-zA-Z0-9]+)$#', $path, $m) && $method === 'GET') return handle_get_video($m[1]);
-    if (preg_match('#^/videos/([a-zA-Z0-9]+)$#', $path, $m) && $method === 'DELETE') return handle_delete_video($m[1]);
-    if (preg_match('#^/videos/([a-zA-Z0-9]+)/view$#', $path, $m) && $method === 'POST') return handle_view_video($m[1]);
+    if ($path === '/videos/upload' && $method === 'POST') { handle_upload_video(); return; }
+    if (preg_match('#^/videos/([a-zA-Z0-9]+)$#', $path, $m) && $method === 'GET') { handle_get_video($m[1]); return; }
+    if (preg_match('#^/videos/([a-zA-Z0-9]+)$#', $path, $m) && $method === 'DELETE') { handle_delete_video($m[1]); return; }
+    if (preg_match('#^/videos/([a-zA-Z0-9]+)/view$#', $path, $m) && $method === 'POST') { handle_view_video($m[1]); return; }
 
     // Feed
-    if ($path === '/feed/for-you' && $method === 'GET') return handle_feed_for_you();
-    if ($path === '/feed/following' && $method === 'GET') return handle_feed_following();
+    if ($path === '/feed/for-you' && $method === 'GET') { handle_feed_for_you(); return; }
+    if ($path === '/feed/following' && $method === 'GET') { handle_feed_following(); return; }
 
     // Likes
-    if (preg_match('#^/videos/([a-zA-Z0-9]+)/like$#', $path, $m) && $method === 'POST') return handle_like($m[1]);
-    if (preg_match('#^/videos/([a-zA-Z0-9]+)/like$#', $path, $m) && $method === 'DELETE') return handle_unlike($m[1]);
+    if (preg_match('#^/videos/([a-zA-Z0-9]+)/like$#', $path, $m) && $method === 'POST') { handle_like($m[1]); return; }
+    if (preg_match('#^/videos/([a-zA-Z0-9]+)/like$#', $path, $m) && $method === 'DELETE') { handle_unlike($m[1]); return; }
 
     // Saves
-    if (preg_match('#^/videos/([a-zA-Z0-9]+)/save$#', $path, $m) && $method === 'POST') return handle_save($m[1]);
-    if (preg_match('#^/videos/([a-zA-Z0-9]+)/save$#', $path, $m) && $method === 'DELETE') return handle_unsave($m[1]);
+    if (preg_match('#^/videos/([a-zA-Z0-9]+)/save$#', $path, $m) && $method === 'POST') { handle_save($m[1]); return; }
+    if (preg_match('#^/videos/([a-zA-Z0-9]+)/save$#', $path, $m) && $method === 'DELETE') { handle_unsave($m[1]); return; }
 
     // Comments
-    if (preg_match('#^/videos/([a-zA-Z0-9]+)/comments$#', $path, $m) && $method === 'GET') return handle_get_comments($m[1]);
-    if (preg_match('#^/videos/([a-zA-Z0-9]+)/comments$#', $path, $m) && $method === 'POST') return handle_add_comment($m[1]);
-    if (preg_match('#^/comments/([a-zA-Z0-9]+)/like$#', $path, $m) && $method === 'POST') return handle_like_comment($m[1]);
-    if (preg_match('#^/comments/([a-zA-Z0-9]+)/like$#', $path, $m) && $method === 'DELETE') return handle_unlike_comment($m[1]);
-    if (preg_match('#^/comments/([a-zA-Z0-9]+)/replies$#', $path, $m) && $method === 'GET') return handle_comment_replies($m[1]);
-    if (preg_match('#^/comments/([a-zA-Z0-9]+)$#', $path, $m) && $method === 'DELETE') return handle_delete_comment($m[1]);
+    if (preg_match('#^/videos/([a-zA-Z0-9]+)/comments$#', $path, $m) && $method === 'GET') { handle_get_comments($m[1]); return; }
+    if (preg_match('#^/videos/([a-zA-Z0-9]+)/comments$#', $path, $m) && $method === 'POST') { handle_add_comment($m[1]); return; }
+    if (preg_match('#^/comments/([a-zA-Z0-9]+)/like$#', $path, $m) && $method === 'POST') { handle_like_comment($m[1]); return; }
+    if (preg_match('#^/comments/([a-zA-Z0-9]+)/like$#', $path, $m) && $method === 'DELETE') { handle_unlike_comment($m[1]); return; }
+    if (preg_match('#^/comments/([a-zA-Z0-9]+)/replies$#', $path, $m) && $method === 'GET') { handle_comment_replies($m[1]); return; }
+    if (preg_match('#^/comments/([a-zA-Z0-9]+)$#', $path, $m) && $method === 'DELETE') { handle_delete_comment($m[1]); return; }
 
     // Saved videos
-    if ($path === '/users/me/saved' && $method === 'GET') return handle_my_saved();
+    if ($path === '/users/me/saved' && $method === 'GET') { handle_my_saved(); return; }
 
     // Notifications
-    if ($path === '/notifications' && $method === 'GET') return handle_notifications();
-    if ($path === '/notifications/read' && $method === 'POST') return handle_mark_notifications_read();
+    if ($path === '/notifications' && $method === 'GET') { handle_notifications(); return; }
+    if ($path === '/notifications/read' && $method === 'POST') { handle_mark_notifications_read(); return; }
 
     // Search
-    if ($path === '/search' && $method === 'GET') return handle_search();
+    if ($path === '/search' && $method === 'GET') { handle_search(); return; }
 
     // Hashtags
-    if ($path === '/hashtags/trending' && $method === 'GET') return handle_trending_hashtags();
-    if (preg_match('#^/hashtags/([^/]+)/videos$#', $path, $m) && $method === 'GET') return handle_hashtag_videos($m[1]);
+    if ($path === '/hashtags/trending' && $method === 'GET') { handle_trending_hashtags(); return; }
+    if (preg_match('#^/hashtags/([^/]+)/videos$#', $path, $m) && $method === 'GET') { handle_hashtag_videos($m[1]); return; }
 
     // Reports & Blocks
-    if ($path === '/report' && $method === 'POST') return handle_report();
-    if (preg_match('#^/users/([a-zA-Z0-9]+)/block$#', $path, $m) && $method === 'POST') return handle_block($m[1]);
-    if (preg_match('#^/users/([a-zA-Z0-9]+)/block$#', $path, $m) && $method === 'DELETE') return handle_unblock($m[1]);
+    if ($path === '/report' && $method === 'POST') { handle_report(); return; }
+    if (preg_match('#^/users/([a-zA-Z0-9]+)/block$#', $path, $m) && $method === 'POST') { handle_block($m[1]); return; }
+    if (preg_match('#^/users/([a-zA-Z0-9]+)/block$#', $path, $m) && $method === 'DELETE') { handle_unblock($m[1]); return; }
 
     // Upload avatar
-    if ($path === '/users/avatar' && $method === 'POST') return handle_upload_avatar();
+    if ($path === '/users/avatar' && $method === 'POST') { handle_upload_avatar(); return; }
 
     // Stream video (direct file access but through PHP for byte-range support)
-    if (preg_match('#^/stream/([a-zA-Z0-9_.]+)$#', $path, $m) && $method === 'GET') return handle_stream($m[1], 'videos');
-    if (preg_match('#^/avatar/([a-zA-Z0-9_.]+)$#', $path, $m) && $method === 'GET') return handle_stream($m[1], 'avatars');
+    if (preg_match('#^/stream/([a-zA-Z0-9_.]+)$#', $path, $m) && $method === 'GET') { handle_stream($m[1], 'videos'); return; }
+    if (preg_match('#^/avatar/([a-zA-Z0-9_.]+)$#', $path, $m) && $method === 'GET') { handle_stream($m[1], 'avatars'); return; }
 
     error_response('Not found', 404);
 }
@@ -171,9 +185,7 @@ function handle_logout(): void
 {
     $userId = get_user_id();
     if ($userId) {
-        $headers = getallheaders();
-        $auth = $headers['Authorization'] ?? ($_SERVER['HTTP_AUTHORIZATION'] ?? '');
-        $token = trim(str_replace('Bearer', '', $auth));
+        $token = get_bearer_token();
         $sessions = new JsonDB('sessions');
         $sessions->delete(fn($s) => $s['token'] === $token);
     }
@@ -302,10 +314,7 @@ function handle_upload_avatar(): void
     chmod($dest, 0644);
 
     // Determine if the API is at a sub-path (e.g. /api/index.php)
-    $basePath = dirname($_SERVER['SCRIPT_NAME']);
-    $basePath = rtrim($basePath, '/');
-    $avatarPath = $basePath . '/avatar/' . $filename;
-    $fullUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . $avatarPath;
+    $fullUrl = public_base_url() . '/avatar/' . $filename;
 
     $users = new JsonDB('users');
     $oldUser = $users->findOne(fn($u) => $u['id'] === $userId);
@@ -437,48 +446,130 @@ function handle_following(string $idOrUsername): void
 function handle_upload_video(): void
 {
     $userId = require_auth();
-    if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+
+    // Detect "post body too large": PHP silently empties $_FILES/$_POST when
+    // CONTENT_LENGTH exceeds post_max_size, which used to surface as a
+    // confusing "Video file required".
+    if (empty($_FILES) && empty($_POST)) {
+        $len = (int)($_SERVER['CONTENT_LENGTH'] ?? 0);
+        $limit = ini_bytes(ini_get('post_max_size'));
+        if ($len > 0 && $limit > 0 && $len > $limit) {
+            error_response('Video too large for this server (post_max_size is ' . ini_get('post_max_size') . '). Choose a shorter/smaller video.', 413);
+        }
+    }
+
+    if (!isset($_FILES['file'])) {
         error_response('Video file required', 400);
     }
     $file = $_FILES['file'];
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        error_response(upload_error_message((int)$file['error']), 400);
+    }
     if ($file['size'] > MAX_VIDEO_SIZE) error_response('Video too large (max 100MB)', 400);
 
     $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-    if (!in_array($ext, ['mp4', 'mov', 'webm', 'm4v'])) error_response('Invalid video format. Use mp4, mov, webm, or m4v', 400);
-
     $finfo = new finfo(FILEINFO_MIME_TYPE);
-    $mime = $finfo->file($file['tmp_name']);
-    $allowedMimes = ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-m4v'];
-    if (!in_array($mime, $allowedMimes)) error_response('Invalid video file', 400);
+    $mime = (string)$finfo->file($file['tmp_name']);
+    $mimeToExt = [
+        'video/mp4' => 'mp4',
+        'video/quicktime' => 'mov',
+        'video/webm' => 'webm',
+        'video/x-m4v' => 'm4v',
+        'video/3gpp' => '3gp',
+        'video/x-matroska' => 'mkv',
+    ];
+    if (!isset($mimeToExt[$mime])) {
+        error_response('Invalid video file (' . $mime . '). Use mp4, mov, webm or m4v', 400);
+    }
+    // Trust the sniffed type over the client-supplied name so the file is
+    // stored with an extension that matches its real container.
+    if (!in_array($ext, ['mp4', 'mov', 'webm', 'm4v', '3gp', 'mkv'], true)) $ext = $mimeToExt[$mime];
 
     $caption = sanitize_string($_POST['caption'] ?? '', 2000);
     $hashtags = extract_hashtags($caption);
     $duration = (float)($_POST['duration'] ?? 0);
 
+    ensure_writable_dir(VIDEO_DIR, 'video upload directory');
+
     $vid = bin2hex(random_bytes(12));
     $filename = $vid . '.' . $ext;
     $dest = VIDEO_DIR . '/' . $filename;
-    if (strpos(realpath(dirname($dest)), VIDEO_DIR) !== 0) error_response('Invalid path', 400);
-    if (!move_uploaded_file($file['tmp_name'], $dest)) error_response('Upload failed', 500);
-    chmod($dest, 0644);
+    if (strpos((string)realpath(dirname($dest)), (string)realpath(VIDEO_DIR)) !== 0) error_response('Invalid path', 400);
+    if (!move_uploaded_file($file['tmp_name'], $dest)) error_response('Upload failed (could not write to api/uploads/videos - chmod 775 it)', 500);
+    @chmod($dest, 0644);
 
-    $basePath = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/');
-    $videoUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . $basePath . '/stream/' . $filename;
-    $thumbUrl = null;
+    // Optional poster image generated by the client; shown while the video
+    // buffers instead of a black frame.
+    $thumbRel = null;
+    if (isset($_FILES['thumbnail']) && ($_FILES['thumbnail']['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_OK) {
+        $t = $_FILES['thumbnail'];
+        $tmime = (string)$finfo->file($t['tmp_name']);
+        $imgExt = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'][$tmime] ?? null;
+        if ($imgExt !== null && $t['size'] <= MAX_AVATAR_SIZE && is_dir(THUMB_DIR) && is_writable(THUMB_DIR)) {
+            $tdest = THUMB_DIR . '/' . $vid . '.' . $imgExt;
+            if (@move_uploaded_file($t['tmp_name'], $tdest)) {
+                @chmod($tdest, 0644);
+                $thumbRel = 'uploads/thumbnails/' . $vid . '.' . $imgExt;
+            }
+        }
+    }
+
+    // Serve the file straight from Apache (native byte-range support, no PHP
+    // time/memory limits, no output compression) instead of through
+    // /stream/, which stalled or truncated on shared hosts and produced a
+    // black player. Stored relative; format_video() makes it absolute.
+    $videoRel = 'uploads/videos/' . $filename;
 
     $videos = new JsonDB('videos');
     $id = $videos->insert([
         'user_id' => $userId,
-        'video_url' => $videoUrl,
-        'thumbnail_url' => $thumbUrl,
+        'video_url' => $videoRel,
+        'thumbnail_url' => $thumbRel,
         'caption' => $caption,
         'hashtags' => array_values($hashtags),
         'duration' => $duration,
         'views' => 0,
     ]);
+    if ($id === null) {
+        @unlink($dest);
+        error_response('Could not save video record (api/data not writable)', 500);
+    }
 
     $video = $videos->findOne(fn($v) => $v['id'] === $id);
     json_response(['video' => format_video($video, $userId)], 201);
+}
+
+function ini_bytes(string $v): int
+{
+    $v = trim($v);
+    if ($v === '') return 0;
+    $unit = strtolower(substr($v, -1));
+    $n = (int)$v;
+    switch ($unit) {
+        case 'g': $n *= 1024; // no break
+        case 'm': $n *= 1024; // no break
+        case 'k': $n *= 1024;
+    }
+    return $n;
+}
+
+function upload_error_message(int $code): string
+{
+    switch ($code) {
+        case UPLOAD_ERR_INI_SIZE:
+            return 'Video too large for this server (upload_max_filesize is ' . ini_get('upload_max_filesize') . ')';
+        case UPLOAD_ERR_FORM_SIZE:
+            return 'Video too large';
+        case UPLOAD_ERR_PARTIAL:
+            return 'Upload interrupted, please try again';
+        case UPLOAD_ERR_NO_FILE:
+            return 'Video file required';
+        case UPLOAD_ERR_NO_TMP_DIR:
+        case UPLOAD_ERR_CANT_WRITE:
+            return 'Server cannot store uploads (temp dir / permissions)';
+        default:
+            return 'Upload failed (code ' . $code . ')';
+    }
 }
 
 function handle_get_video(string $id): void
@@ -500,9 +591,14 @@ function handle_delete_video(string $id): void
     if ($video['user_id'] !== $userId) error_response('Not authorized', 403);
 
     // Delete file
-    $fname = basename(parse_url($video['video_url'], PHP_URL_PATH));
+    $fname = basename((string)parse_url((string)$video['video_url'], PHP_URL_PATH));
     $fpath = VIDEO_DIR . '/' . $fname;
-    if (file_exists($fpath) && strpos(realpath($fpath), VIDEO_DIR) === 0) @unlink($fpath);
+    if ($fname !== '' && file_exists($fpath) && strpos((string)realpath($fpath), (string)realpath(VIDEO_DIR)) === 0) @unlink($fpath);
+    if (!empty($video['thumbnail_url'])) {
+        $tname = basename((string)parse_url((string)$video['thumbnail_url'], PHP_URL_PATH));
+        $tpath = THUMB_DIR . '/' . $tname;
+        if ($tname !== '' && file_exists($tpath) && strpos((string)realpath($tpath), (string)realpath(THUMB_DIR)) === 0) @unlink($tpath);
+    }
 
     $videos->delete(fn($v) => $v['id'] === $id);
     // Clean up likes/comments/saves
@@ -1013,6 +1109,8 @@ function handle_stream(string $filename, string $type): void
         'm4v' => 'video/mp4',
         'mov' => 'video/quicktime',
         'webm' => 'video/webm',
+        '3gp' => 'video/3gpp',
+        'mkv' => 'video/x-matroska',
         'jpg' => 'image/jpeg',
         'jpeg' => 'image/jpeg',
         'png' => 'image/png',
@@ -1041,7 +1139,30 @@ function handle_stream(string $filename, string $type): void
         }
     }
 
-    ob_end_clean();
+    // Raw binary: kill every output buffer and any transparent compression,
+    // otherwise Content-Length no longer matches the bytes sent and the
+    // player shows a black frame / stalls. Also lift the script time limit
+    // so long videos are not cut off mid-stream.
+    while (ob_get_level() > 0) {
+        @ob_end_clean();
+    }
+    @ini_set('zlib.output_compression', '0');
+    if (function_exists('apache_setenv')) {
+        @apache_setenv('no-gzip', '1');
+        @apache_setenv('dont-vary', '1');
+    }
+    @set_time_limit(0);
+    ignore_user_abort(false);
+
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'HEAD') {
+        http_response_code($status);
+        header("Content-Type: $mime");
+        header("Accept-Ranges: bytes");
+        header("Content-Length: $length");
+        if ($status === 206) header("Content-Range: bytes $start-$end/$size");
+        exit;
+    }
+
     http_response_code($status);
     header("Content-Type: $mime");
     header("Accept-Ranges: bytes");
@@ -1057,10 +1178,12 @@ function handle_stream(string $filename, string $type): void
         fseek($fp, $start);
         $remaining = $length;
         $chunkSize = 1024 * 256; // 256KB chunks
-        while (!feof($fp) && $remaining > 0) {
-            $toRead = min($chunkSize, $remaining);
-            echo fread($fp, $toRead);
-            $remaining -= $toRead;
+        while (!feof($fp) && $remaining > 0 && !connection_aborted()) {
+            $toRead = (int)min($chunkSize, $remaining);
+            $buf = fread($fp, $toRead);
+            if ($buf === false || $buf === '') break;
+            echo $buf;
+            $remaining -= strlen($buf);
             flush();
         }
         fclose($fp);

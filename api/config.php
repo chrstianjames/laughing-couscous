@@ -16,6 +16,7 @@ define('DATA_DIR', BASE_PATH . '/data');
 define('UPLOAD_DIR', BASE_PATH . '/uploads');
 define('AVATAR_DIR', UPLOAD_DIR . '/avatars');
 define('VIDEO_DIR', UPLOAD_DIR . '/videos');
+define('THUMB_DIR', UPLOAD_DIR . '/thumbnails');
 define('MAX_VIDEO_SIZE', 100 * 1024 * 1024); // 100MB
 define('MAX_AVATAR_SIZE', 5 * 1024 * 1024);  // 5MB
 define('SESSION_EXPIRY', 30 * 24 * 60 * 60); // 30 days
@@ -23,24 +24,109 @@ define('RATE_LIMIT_WINDOW', 60); // 60 seconds
 define('RATE_LIMIT_MAX', 120);   // 120 requests per minute per IP for general
 define('RATE_LIMIT_AUTH_MAX', 10); // 10 auth attempts per minute
 
-// Ensure directories exist
-if (!is_dir(DATA_DIR)) mkdir(DATA_DIR, 0755, true);
-if (!is_dir(AVATAR_DIR)) mkdir(AVATAR_DIR, 0755, true);
-if (!is_dir(VIDEO_DIR)) mkdir(VIDEO_DIR, 0755, true);
-
-// Security headers
-header('Content-Type: application/json; charset=utf-8');
-header('X-Content-Type-Options: nosniff');
-header('X-Frame-Options: DENY');
-header('X-XSS-Protection: 1; mode=block');
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+// Security headers (sent before anything that could fail so that even
+// error responses are JSON with CORS headers)
+if (!headers_sent()) {
+    header('Content-Type: application/json; charset=utf-8');
+    header('X-Content-Type-Options: nosniff');
+    header('X-Frame-Options: DENY');
+    header('X-XSS-Protection: 1; mode=block');
+    header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With');
+}
 
 // Handle preflight
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'OPTIONS') {
     http_response_code(204);
     exit;
+}
+
+// Last-resort safety net: if anything fatals (uncaught exception, missing
+// extension, etc.) still answer with JSON instead of Apache's blank HTML 500.
+register_shutdown_function(function (): void {
+    $err = error_get_last();
+    if ($err === null) return;
+    if (!in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR, E_RECOVERABLE_ERROR], true)) return;
+    // Discard any partial output
+    while (ob_get_level() > 0) {
+        @ob_end_clean();
+    }
+    if (!headers_sent()) {
+        http_response_code(500);
+        header('Content-Type: application/json; charset=utf-8');
+        header('Access-Control-Allow-Origin: *');
+    }
+    error_log('API fatal: ' . $err['message'] . ' in ' . $err['file'] . ':' . $err['line']);
+    echo json_encode(['error' => true, 'message' => 'Internal server error'], JSON_UNESCAPED_UNICODE);
+});
+
+// mbstring may be missing on some hosts. Provide byte-based fallbacks so
+// register/search do not fatal with "Call to undefined function".
+if (!function_exists('mb_substr')) {
+    function mb_substr(string $s, int $start, ?int $length = null, ?string $encoding = null): string
+    {
+        return $length === null ? substr($s, $start) : substr($s, $start, $length);
+    }
+}
+if (!function_exists('mb_strlen')) {
+    function mb_strlen(string $s, ?string $encoding = null): int
+    {
+        return strlen($s);
+    }
+}
+if (!function_exists('mb_strtolower')) {
+    function mb_strtolower(string $s, ?string $encoding = null): string
+    {
+        return strtolower($s);
+    }
+}
+
+// Ensure directories exist and are writable. Report a JSON error instead of
+// letting a later file_put_contents() fatal into a blank 500.
+function ensure_writable_dir(string $dir, string $label): void
+{
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0775, true);
+    }
+    if (!is_dir($dir) || !is_writable($dir)) {
+        $rel = str_replace(BASE_PATH, 'api', $dir);
+        error_response(
+            "Server storage is not writable ({$label}). Run: chmod 775 {$rel} on the server (and make sure it is owned by or group-writable for the PHP user).",
+            500
+        );
+    }
+}
+ensure_writable_dir(DATA_DIR, 'data directory');
+// Upload dirs are only needed for media; create them but do not block login if they fail.
+if (!is_dir(AVATAR_DIR)) @mkdir(AVATAR_DIR, 0775, true);
+if (!is_dir(VIDEO_DIR)) @mkdir(VIDEO_DIR, 0775, true);
+if (!is_dir(THUMB_DIR)) @mkdir(THUMB_DIR, 0775, true);
+
+/**
+ * Public scheme+host for building absolute media URLs. Honours reverse
+ * proxies / CDNs (Cloudflare etc.) that terminate TLS and talk plain HTTP to
+ * Apache; without this uploads got "http://" URLs.
+ */
+function public_base_url(): string
+{
+    $https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (($_SERVER['SERVER_PORT'] ?? '') === '443')
+        || (strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https')
+        || (strtolower((string)($_SERVER['HTTP_X_FORWARDED_SSL'] ?? '')) === 'on')
+        || (strtolower((string)($_SERVER['HTTP_FRONT_END_HTTPS'] ?? '')) === 'on');
+    $host = $_SERVER['HTTP_X_FORWARDED_HOST'] ?? ($_SERVER['HTTP_HOST'] ?? ($_SERVER['SERVER_NAME'] ?? 'localhost'));
+    $host = explode(',', (string)$host)[0];
+    $base = rtrim(str_replace('\\', '/', dirname((string)($_SERVER['SCRIPT_NAME'] ?? '/api/index.php'))), '/');
+    return ($https ? 'https' : 'http') . '://' . trim($host) . $base;
+}
+
+/** Turn a stored (possibly relative or http://) media URL into a usable absolute URL. */
+function media_url(?string $url): ?string
+{
+    if ($url === null || $url === '') return null;
+    if (preg_match('#^https?://#i', $url)) return $url;
+    return public_base_url() . '/' . ltrim($url, '/');
 }
 
 /**
@@ -61,8 +147,10 @@ class JsonDB
 
     private function initFile(): void
     {
-        file_put_contents($this->file, "[]", LOCK_EX);
-        chmod($this->file, 0644);
+        if (@file_put_contents($this->file, "[]", LOCK_EX) === false) {
+            error_response('Server storage is not writable (api/data). Run: chmod 775 api/data on the server.', 500);
+        }
+        @chmod($this->file, 0664);
     }
 
     public function read(): array
@@ -97,7 +185,10 @@ class JsonDB
         flock($handle, LOCK_UN);
         fclose($handle);
 
-        rename($tmp, $this->file);
+        if (!@rename($tmp, $this->file)) {
+            @unlink($tmp);
+            return false;
+        }
         return true;
     }
 
@@ -168,7 +259,7 @@ class JsonDB
     /**
      * Find all items matching filter, with pagination and sort
      */
-    public function findAll(callable $filter = null, string $sortBy = 'created_at', bool $desc = true, int $offset = 0, int $limit = 50): array
+    public function findAll(?callable $filter = null, string $sortBy = 'created_at', bool $desc = true, int $offset = 0, int $limit = 50): array
     {
         $data = $this->read();
         if ($filter) {
@@ -187,7 +278,7 @@ class JsonDB
         return ['items' => $items, 'total' => $total];
     }
 
-    public function count(callable $filter = null): int
+    public function count(?callable $filter = null): int
     {
         $data = $this->read();
         if ($filter) {
@@ -236,9 +327,22 @@ class RateLimiter
 // Response helper
 function json_response($data, int $code = 200): void
 {
-    http_response_code($code);
-    echo json_encode($data, JSON_UNESCAPED_UNICODE);
-    ob_end_flush();
+    // Drop any stray output (warnings, BOMs, whitespace) captured so far so
+    // the body is pure JSON. Only touch buffers that actually exist:
+    // ob_end_flush() with no active buffer throws on PHP 8 and, with
+    // zlib.output_compression, would produce a blank HTML 500.
+    while (ob_get_level() > 0) {
+        if (!@ob_end_clean()) break;
+    }
+    if (!headers_sent()) {
+        http_response_code($code);
+        header('Content-Type: application/json; charset=utf-8');
+    }
+    $json = json_encode($data, JSON_UNESCAPED_UNICODE);
+    if ($json === false) {
+        $json = json_encode(['error' => true, 'message' => 'Failed to encode response']);
+    }
+    echo $json;
     exit;
 }
 
@@ -257,10 +361,48 @@ function get_json_body(): array
     return is_array($data) ? $data : [];
 }
 
+/**
+ * Read the Authorization header in a way that works on Apache mod_php,
+ * PHP-CGI and PHP-FPM. getallheaders() does not exist on every SAPI, and
+ * Apache strips Authorization unless .htaccess copies it into
+ * HTTP_AUTHORIZATION / REDIRECT_HTTP_AUTHORIZATION.
+ */
+function get_authorization_header(): string
+{
+    $candidates = [
+        $_SERVER['HTTP_AUTHORIZATION'] ?? null,
+        $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? null,
+        $_SERVER['REDIRECT_REDIRECT_HTTP_AUTHORIZATION'] ?? null,
+    ];
+    foreach ($candidates as $c) {
+        if (is_string($c) && trim($c) !== '') return trim($c);
+    }
+    if (function_exists('getallheaders')) {
+        $headers = @getallheaders();
+        if (is_array($headers)) {
+            foreach ($headers as $k => $v) {
+                if (strcasecmp((string)$k, 'Authorization') === 0 && is_string($v) && trim($v) !== '') {
+                    return trim($v);
+                }
+            }
+        }
+    }
+    return '';
+}
+
+function get_bearer_token(): string
+{
+    $auth = get_authorization_header();
+    if ($auth === '') return '';
+    if (stripos($auth, 'Bearer') === 0) {
+        $auth = substr($auth, 6);
+    }
+    return trim($auth);
+}
+
 function get_user_id(): ?string
 {
-    $headers = getallheaders();
-    $auth = $headers['Authorization'] ?? ($_SERVER['HTTP_AUTHORIZATION'] ?? '');
+    $auth = get_authorization_header();
     if (empty($auth)) {
         // Check query param for simpler video streaming clients
         if (isset($_GET['token'])) {
@@ -269,7 +411,7 @@ function get_user_id(): ?string
             return null;
         }
     } else {
-        $token = trim(str_replace('Bearer', '', $auth));
+        $token = get_bearer_token();
     }
     if (empty($token)) return null;
 
@@ -334,7 +476,7 @@ function format_user(array $user, bool $includeEmail = false): array
         'id' => $user['id'],
         'username' => $user['username'],
         'display_name' => $user['display_name'] ?? $user['username'],
-        'avatar_url' => $user['avatar_url'] ?? null,
+        'avatar_url' => media_url($user['avatar_url'] ?? null),
         'bio' => $user['bio'] ?? '',
         'followers_count' => $followersCount,
         'following_count' => $followingCount,
@@ -364,8 +506,8 @@ function format_video(array $video, ?string $currentUserId = null): array
         'id' => $video['id'],
         'user_id' => $video['user_id'],
         'author' => $authorData,
-        'video_url' => $video['video_url'],
-        'thumbnail_url' => $video['thumbnail_url'] ?? null,
+        'video_url' => media_url($video['video_url'] ?? ''),
+        'thumbnail_url' => media_url($video['thumbnail_url'] ?? null),
         'caption' => $video['caption'] ?? '',
         'hashtags' => $video['hashtags'] ?? [],
         'duration' => (float)($video['duration'] ?? 0),

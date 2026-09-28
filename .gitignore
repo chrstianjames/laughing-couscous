@@ -14,7 +14,7 @@ android/.cxx/
 
 # API runtime
 api/data/*.tmp
-api/uploads/
+api/uploads/*
 !api/uploads/.htaccess
 api/php_errors.log
 

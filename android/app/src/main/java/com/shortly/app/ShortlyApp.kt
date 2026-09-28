@@ -4,60 +4,25 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
-import coil.ImageLoader
-import coil.ImageLoaderFactory
-import coil.disk.DiskCache
-import coil.memory.MemoryCache
-import com.shortly.app.data.api.ApiService
-import com.shortly.app.data.prefs.TokenManager
-import com.shortly.app.data.repository.NotificationRepository
-import com.shortly.app.data.repository.VideoCache
-import com.shortly.app.util.Constants
-import okhttp3.OkHttpClient
-import okhttp3.logging.HttpLoggingInterceptor
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
-import java.util.concurrent.TimeUnit
+import coil3.ImageLoader
+import coil3.PlatformContext
+import coil3.SingletonImageLoader
+import coil3.disk.DiskCache
+import coil3.disk.directory
+import coil3.memory.MemoryCache
+import coil3.network.ktor3.KtorNetworkFetcherFactory
+import coil3.request.crossfade
+import com.shortly.app.platform.AndroidPlatform
 
-class ShortlyApp : Application(), ImageLoaderFactory {
-
-    lateinit var apiService: ApiService
-    lateinit var tokenManager: TokenManager
-    lateinit var videoCache: VideoCache
+/**
+ * Android-only bootstrap. All app logic lives in the shared module; this just
+ * wires the platform context, notification channels and the image cache.
+ */
+class ShortlyApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
-        instance = this
-
-        tokenManager = TokenManager(this)
-        videoCache = VideoCache(this)
-
-        val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BASIC
-        }
-
-        val client = OkHttpClient.Builder()
-            .addInterceptor(logging)
-            .addInterceptor { chain ->
-                val req = chain.request().newBuilder()
-                tokenManager.getToken()?.let {
-                    req.addHeader("Authorization", "Bearer $it")
-                }
-                req.build().let { chain.proceed(it) }
-            }
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(60, TimeUnit.SECONDS)
-            .build()
-
-        val retrofit = Retrofit.Builder()
-            .baseUrl(Constants.API_BASE)
-            .client(client)
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-
-        apiService = retrofit.create(ApiService::class.java)
-
+        AndroidPlatform.init(this)
         createNotificationChannels()
     }
 
@@ -68,40 +33,20 @@ class ShortlyApp : Application(), ImageLoaderFactory {
                 "Activity",
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply { description = "Likes, follows, comments" }
-            val mgr = getSystemService(NotificationManager::class.java)
-            mgr.createNotificationChannel(channel)
+            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
 
-    override fun newImageLoader(): ImageLoader {
-        return ImageLoader.Builder(this)
-            .memoryCache {
-                MemoryCache.Builder(this).maxSizePercent(0.25).build()
-            }
+    override fun newImageLoader(context: PlatformContext): ImageLoader =
+        ImageLoader.Builder(context)
+            .components { add(KtorNetworkFetcherFactory()) }
+            .memoryCache { MemoryCache.Builder().maxSizePercent(context, 0.25).build() }
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache"))
                     .maxSizeBytes(100L * 1024 * 1024) // 100MB
                     .build()
             }
-            .okHttpClient {
-                OkHttpClient.Builder()
-                    .addInterceptor { chain ->
-                        val req = chain.request().newBuilder()
-                        val token = getSharedPreferences("shortly_sync", MODE_PRIVATE).getString("token", null)
-                        token?.let {
-                            req.addHeader("Authorization", "Bearer $it")
-                        }
-                        chain.proceed(req.build())
-                    }
-                    .build()
-            }
             .crossfade(true)
             .build()
-    }
-
-    companion object {
-        lateinit var instance: ShortlyApp
-            private set
-    }
 }

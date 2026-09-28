@@ -1,0 +1,88 @@
+name: Build Web (Compose Multiplatform / Wasm)
+
+on:
+  push:
+    branches: [main, master, "arena/**"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Wasm distribution
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # The Android Gradle Plugin is applied in the same build (:app, :shared),
+      # so Gradle needs sdk.dir even though only the Wasm target is compiled.
+      - name: Point Gradle at the preinstalled Android SDK
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "sdk.dir=$SDK" > android/local.properties
+
+      - name: Build static web files
+        working-directory: android
+        run: |
+          set -o pipefail
+          chmod +x gradlew
+          ./gradlew :webApp:wasmJsBrowserDistribution --stacktrace 2>&1 | tee build.log
+
+      - name: Report compiler errors as annotations
+        if: failure()
+        working-directory: android
+        run: |
+          set +e
+          if [ -f build.log ]; then
+            enc() { sed 's#file:///home/runner/work/laughing-couscous/laughing-couscous/##' | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g'; }
+            # at most 4 errors per file so every failing file is visible
+            PERFILE="$(grep -E '^e: ' build.log | sort -u | awk '{sub("file:///","",$2); split($2,a,":"); f=a[1]; c[f]++; if (c[f]<=4) print}')"
+            COMMON="$(printf '%s\n' "$PERFILE" | grep 'commonMain' | head -70 | enc)"
+            OTHER="$(printf '%s\n' "$PERFILE" | grep -v 'commonMain' | head -70 | enc)"
+            WRONG="$(grep -A 12 'What went wrong' build.log | head -40 | enc)"
+            [ -n "$COMMON" ] && echo "::error title=commonMain errors::${COMMON}"
+            [ -n "$OTHER" ] && echo "::error title=platform errors::${OTHER}"
+            echo "::error title=Gradle failure::${WRONG}"
+          fi
+
+      - name: Collect distribution
+        working-directory: android
+        run: |
+          set -euo pipefail
+          D="webApp/build/dist/wasmJs/productionExecutable"
+          test -f "$D/index.html" || { echo "::error::No index.html in $D"; find webApp/build/dist -type f || true; exit 1; }
+          ls -la "$D"
+          {
+            echo "### Shortly web build (Kotlin/Wasm)"
+            echo ""
+            echo "Static files in \`android/$D\` — deploy the folder to any static host."
+            echo "- Artifact: **shortly-web-wasm**"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload web artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: shortly-web-wasm
+          path: android/webApp/build/dist/wasmJs/productionExecutable
+          if-no-files-found: error
+          retention-days: 30
