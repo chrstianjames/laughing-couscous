@@ -1,0 +1,17 @@
+# Shortly web (Kotlin/Wasm) - place these files in the web root next to api/
+AddType application/wasm .wasm
+AddType application/javascript .js .mjs
+
+<IfModule mod_headers.c>
+    # Hashed bundles can be cached for a long time; index.html must not be.
+    <FilesMatch "\.(wasm|js)$">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+    <FilesMatch "index\.html$">
+        Header set Cache-Control "no-cache"
+    </FilesMatch>
+</IfModule>
+
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE application/wasm application/javascript text/html
+</IfModule>

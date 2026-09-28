@@ -104,3 +104,13 @@ execution inside the upload directories.
 
 The app talks to `https://app.chinai.uk/api/` — change it in
 `android/app/src/main/java/com/shortly/app/util/Constants.kt` and rebuild.
+
+## Web (Kotlin/Wasm) deployment to app.chinai.uk
+
+1. Download the `shortly-web-wasm` artifact from the latest **Build Web** run
+   in GitHub Actions (or run `cd android && ./gradlew :webApp:wasmJsBrowserDistribution`;
+   output is in `android/webApp/build/dist/wasmJs/productionExecutable/`).
+2. Upload the folder contents (`index.html`, `shortly.js`, `*.wasm`, `.htaccess`)
+   to the web root - the same directory that contains `api/`.
+3. Nothing else: the app talks to `/api/` on the same origin. The bundled
+   `.htaccess` sets the `application/wasm` MIME type required by browsers.
