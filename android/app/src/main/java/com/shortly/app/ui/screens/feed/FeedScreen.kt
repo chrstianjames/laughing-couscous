@@ -13,6 +13,13 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -31,7 +38,8 @@ fun FeedScreen(
     onCommentClick: (Video) -> Unit,
     onHashtagClick: (String) -> Unit,
     onFollowingTab: (() -> Unit)? = null,
-    onBack: (() -> Unit)? = null
+    onBack: (() -> Unit)? = null,
+    onSearchClick: (() -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -154,32 +162,39 @@ fun FeedScreen(
                 )
             }
 
-            // Top tabs
-            Row(
+            // Top tabs (TikTok style: "Following | For You" with underline, search on the right)
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 44.dp)
-                    .statusBarsPadding(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
+                    .statusBarsPadding()
+                    .padding(top = 6.dp)
+                    .height(44.dp)
             ) {
                 if (onBack != null) {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = androidx.compose.ui.graphics.Color.White)
+                    IconButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterStart)) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
                     }
                 }
-                if (feedType != "following") {
-                    TextButton(onClick = { onFollowingTab?.invoke() }) {
-                        Text("Following", color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.6f), fontWeight = FontWeight.SemiBold)
-                    }
-                    Text(
-                        "|",
-                        color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.4f),
-                        modifier = Modifier.padding(horizontal = 8.dp)
+                Row(
+                    modifier = Modifier.align(Alignment.Center),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(22.dp)
+                ) {
+                    FeedTab(
+                        title = "Following",
+                        selected = feedType == "following",
+                        onClick = { if (feedType != "following") onFollowingTab?.invoke() }
                     )
-                    Text("For You", color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.Bold)
-                } else {
-                    Text("Following", color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.Bold)
+                    FeedTab(
+                        title = "For You",
+                        selected = feedType != "following",
+                        onClick = { if (feedType == "following") onBack?.invoke() }
+                    )
+                }
+                onSearchClick?.let {
+                    IconButton(onClick = it, modifier = Modifier.align(Alignment.CenterEnd)) {
+                        Icon(Icons.Default.Search, contentDescription = "Search", tint = Color.White, modifier = Modifier.size(26.dp))
+                    }
                 }
             }
         }
@@ -228,6 +243,33 @@ fun FeedScreen(
                     showMoreSheet = null
                 }
             }
+        )
+    }
+}
+
+@Composable
+private fun FeedTab(title: String, selected: Boolean, onClick: () -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+            onClick = onClick
+        )
+    ) {
+        Text(
+            title,
+            color = if (selected) Color.White else Color.White.copy(alpha = 0.6f),
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
+            fontSize = 17.sp
+        )
+        Spacer(Modifier.height(4.dp))
+        Box(
+            Modifier
+                .width(28.dp)
+                .height(2.dp)
+                .clip(RoundedCornerShape(1.dp))
+                .background(if (selected) Color.White else Color.Transparent)
         )
     }
 }

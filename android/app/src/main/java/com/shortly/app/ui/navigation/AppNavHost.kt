@@ -1,14 +1,25 @@
 package com.shortly.app.ui.navigation
 
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Inbox
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
@@ -65,43 +76,24 @@ fun AppNavHost(startDestination: String = "auth") {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    val showBottomBar = currentRoute in bottomTabs.map { it.route }
+    val isFeedRoute = currentRoute == Screen.Feed.route || currentRoute == "following_feed"
+    val showBottomBar = currentRoute in bottomTabs.map { it.route } || isFeedRoute
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
             if (showBottomBar) {
-                NavigationBar(containerColor = MaterialTheme.colorScheme.background) {
-                    bottomTabs.forEach { screen ->
-                        val selected = currentRoute == screen.route
-                        NavigationBarItem(
-                            selected = selected,
-                            onClick = {
-                                navController.navigate(screen.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
-                            icon = {
-                                if (screen == Screen.Upload) {
-                                    Icon(
-                                        screen.icon!!,
-                                        contentDescription = screen.title,
-                                        modifier = androidx.compose.ui.Modifier
-                                            .size(40.dp),
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                } else {
-                                    Icon(screen.icon!!, contentDescription = screen.title)
-                                }
-                            },
-                            label = { Text(screen.title, style = MaterialTheme.typography.labelSmall) }
-                        )
+                TikTokBottomBar(
+                    currentRoute = if (isFeedRoute) Screen.Feed.route else currentRoute,
+                    onFeed = isFeedRoute,
+                    onNavigate = { screen ->
+                        navController.navigate(screen.route) {
+                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
                     }
-                }
+                )
             }
         }
     ) { innerPadding ->
@@ -139,7 +131,8 @@ fun AppNavHost(startDestination: String = "auth") {
                     onProfileClick = { username -> navController.navigate(Screen.UserProfile.createRoute(username)) },
                     onCommentClick = { video -> navController.navigate(Screen.Comments.createRoute(video.id)) },
                     onHashtagClick = { tag -> navController.navigate(Screen.Hashtag.createRoute(tag)) },
-                    onFollowingTab = { navController.navigate("following_feed") }
+                    onFollowingTab = { navController.navigate("following_feed") },
+                    onSearchClick = { navController.navigate(Screen.Search.route) }
                 )
             }
             composable("following_feed") {
@@ -258,6 +251,107 @@ fun AppNavHost(startDestination: String = "auth") {
                     onVideoClick = { v -> navController.navigate(Screen.Comments.createRoute(v.id)) }
                 )
             }
+        }
+    }
+}
+
+/**
+ * TikTok-style bottom bar: black on the feed (white/theme elsewhere), five
+ * slots with the big "+" create button in the middle (white pill with the
+ * cyan / red offset backplates).
+ */
+@Composable
+fun TikTokBottomBar(
+    currentRoute: String?,
+    onFeed: Boolean,
+    onNavigate: (Screen) -> Unit
+) {
+    val bg = if (onFeed) Color.Black else MaterialTheme.colorScheme.surface
+    val fg = if (onFeed) Color.White else MaterialTheme.colorScheme.onSurface
+    Column(Modifier.background(bg)) {
+        if (!onFeed) HorizontalDivider(color = MaterialTheme.colorScheme.outline, thickness = 0.5.dp)
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .height(52.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            bottomTabs.forEach { screen ->
+                val selected = currentRoute == screen.route
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { onNavigate(screen) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (screen == Screen.Upload) {
+                        CreateButton()
+                    } else {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            val icon = when (screen) {
+                                Screen.Feed -> if (selected) Icons.Filled.Home else Icons.Outlined.Home
+                                Screen.Search -> Icons.Outlined.Explore
+                                Screen.Notifications -> if (selected) Icons.Filled.Inbox else Icons.Outlined.Inbox
+                                Screen.Profile -> if (selected) Icons.Filled.Person else Icons.Outlined.Person
+                                else -> screen.icon ?: Icons.Filled.Circle
+                            }
+                            Icon(
+                                icon,
+                                contentDescription = screen.title,
+                                tint = if (selected) fg else fg.copy(alpha = 0.6f),
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                when (screen) {
+                                    Screen.Feed -> "Home"
+                                    Screen.Search -> "Discover"
+                                    Screen.Notifications -> "Inbox"
+                                    Screen.Profile -> "Me"
+                                    else -> screen.title
+                                },
+                                color = if (selected) fg else fg.copy(alpha = 0.6f),
+                                fontSize = 10.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.navigationBarsPadding())
+    }
+}
+
+@Composable
+private fun CreateButton() {
+    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(width = 48.dp, height = 30.dp)) {
+        Box(
+            Modifier
+                .offset(x = (-4).dp)
+                .size(width = 38.dp, height = 28.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color(0xFF20D5EC))
+        )
+        Box(
+            Modifier
+                .offset(x = 4.dp)
+                .size(width = 38.dp, height = 28.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color(0xFFFE2C55))
+        )
+        Box(
+            Modifier
+                .size(width = 38.dp, height = 28.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.White),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Filled.Add, contentDescription = "Create", tint = Color.Black, modifier = Modifier.size(22.dp))
         }
     }
 }
